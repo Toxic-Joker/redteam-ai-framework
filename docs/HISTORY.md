@@ -1,0 +1,59 @@
+# Historique du projet (v1)
+
+Rétrospective complète de la première version du framework (mémoire de Mastère Cybersécurité, Réseaux & Cloud, EFREI, soutenu). Ce document explique le "pourquoi" derrière plusieurs choix techniques qui peuvent sembler arbitraires dans `CLAUDE.md` s'ils sont lus sans ce contexte. Ne pas modifier une règle de `CLAUDE.md` sans avoir lu l'incident correspondant ici.
+
+## 1. Ce qu'on voulait faire à l'origine
+
+- Automatiser le cycle offensif complet : reconnaissance, énumération, exploitation, post-exploitation, rapport.
+- Un LLM local prenant des décisions tactiques contextuelles à chaque phase.
+- Adaptation dynamique à l'environnement de la cible.
+- Génération automatique d'un rapport de pentest professionnel (PDF).
+- Réduction de 40 à 50 % du temps passé sur les tâches répétitives.
+- Quatre axes de contribution envisagés au départ : couverture complète du cycle offensif, évasion dynamique face aux EDR/XDR, qualité de la génération de rapport, garanties éthiques et légales.
+
+## 2. Ce qui a été réellement construit et validé
+
+| Objectif initial | Statut | Détail |
+|---|---|---|
+| Cycle complet recon, enum, exploit, postexploit, rapport | Fait | 5 agents orchestrés par un graphe d'états (LangGraph), validé sur plusieurs exécutions réelles contre DVWA |
+| Adaptation dynamique à la cible | Partiel | Le LLM adapte le plan d'énumération/exploitation aux services trouvés, borné par des règles déterministes |
+| Génération automatique de rapport PDF | Fait | Jinja2 vers HTML puis PDF (WeasyPrint), structure fixe, section séparée pour les hypothèses non confirmées |
+| Réduction de 40 à 50 % du temps | Jamais mesuré | Aucune comparaison chronométrée contre une baseline manuelle |
+| 4 axes de contribution | Recentré | Périmètre final honnête : un axe central (fiabilité déterministe), deux axes secondaires réalisés (cycle complet, rapport structuré), deux axes hors périmètre (évasion mesurée, garde-fous complets) |
+| Fiabilité malgré un LLM local peu fiable | Fait, cœur du projet | Plafonnement de sévérité, consolidation, séparation findings/pistes, calcul déterministe du risque : confirmé sur des rapports réels |
+| Prévention des boucles infinies | Fait, corrigé en cours de route | Limite de cycles, suivi des phases terminées, progression forcée |
+| Fonctionnement sur cibles hors réseau local ou en conteneur | Fait, avec correctif nécessaire | `nmap -Pn` indispensable |
+| Déploiement Docker portable | Fait, après une longue série de correctifs | Voir section 4 |
+| Réduction des faux positifs | Fait | 22 chemins en 401/403 consolidés en un seul finding LOW |
+
+## 3. Ce qui n'a jamais été fait ni validé
+
+- Généralité sur plusieurs cibles ou systèmes d'exploitation : validé sur une seule cible (DVWA), reproductibilité démontrée sur deux exécutions répétées seulement.
+- Évasion mesurée face à un EDR/XDR réel : le paramètre existe (niveaux 1 à 3), jamais testé en conditions réelles de détection.
+- Garde-fous éthiques et légaux complets : seule une référence d'autorisation obligatoire et une journalisation existent.
+- Fallback `-sT` (connect scan) pour cibles filtrées : identifié comme manquant, jamais implémenté dans la v1.
+- Détection d'OS fiable : `nmap -O` a produit des résultats absurdes à haute confiance affichée sur des cibles à port unique.
+- Mesure objective du gain de temps par rapport à un audit manuel.
+
+## 4. Journal des incidents Docker (la partie la plus coûteuse en temps)
+
+Le packaging Docker a été fait après la construction de l'application, pas en même temps. Résultat : une longue série d'allers-retours évitables. Dans l'ordre chronologique réel :
+
+1. **Base Docker non épinglée.** `python:3.11-slim` (sans version de Debian) a changé de version majeure sous les pieds du projet en cours de route (bascule vers Debian trixie), cassant l'installation de paquets qui existaient la veille. Correction : épingler `python:3.11-slim-bookworm`.
+2. **`nikto` introuvable via apt.** Sur Debian récent, `nikto` n'est simplement pas un paquet disponible. Correction : clone GitHub + wrapper shell sur le PATH.
+3. **`sqlmap` même problème.** Même correction : clone GitHub + wrapper shell.
+4. **DNS cassé dans le contexte de build Docker** (`Temporary failure resolving 'deb.debian.org'`) alors que la machine hôte avait bien accès à internet. Cause : le démon Docker n'avait pas de résolveur DNS fonctionnel configuré. Correction côté hôte : `/etc/docker/daemon.json` avec `{"dns": ["8.8.8.8", "1.1.1.1"]}`, puis `systemctl restart docker`.
+5. **Espace disque épuisé pendant un pull d'image Ollama** (`no space left on device`), la faute à un cache de build `--no-cache` jamais nettoyé (`docker builder prune -af` a libéré à lui seul plus de 10 Go) combiné à une image Ollama inutilement lourde (bibliothèques CUDA alors que la machine tournait en CPU seul).
+6. **`gobuster` introuvable alors que l'image l'installait.** Le code appelait le binaire `gobuster3` (héritage d'une ancienne convention de nommage), l'image installait `gobuster`. Résultat : échec silencieux de toute l'énumération de répertoires, aucun log d'erreur visible côté utilisateur. Correction temporaire : lien symbolique `gobuster3` vers `gobuster`. Correction propre pour la v2 : un seul nom partout, pas de symlink à maintenir.
+7. **`nikto` échouait silencieusement en conteneur** (`Required module not found: JSON` puis `XML::Writer`) : modules Perl manquants (`libjson-perl`, `libxml-writer-perl`), en plus de `libnet-ssleay-perl` déjà présent pour SSL. Ajout de `libnet-ip-perl` par précaution.
+8. **Rapports vides en conteneur alors que la cible répondait très bien à `curl` et `nmap -Pn` manuel.** Cause : `nmap` sans `-Pn` fait sa propre découverte d'hôte (ping) avant de scanner les ports. Sur un pont Docker vers un réseau segmenté (Host-Only VMware dans ce cas), l'ICMP est couramment bloqué, et le service ciblé tournait en plus sur un port non standard (8888) que la découverte par défaut ne teste pas. Résultat : nmap concluait "hôte down" et sautait complètement le scan de ports. `-Pn` sur tous les modes de scan (ports, vuln) a réglé le problème net.
+9. **`sudo nmap` échouait en conteneur** : l'image slim n'a pas `sudo` installé, et le conteneur tourne déjà en root. Correction : `sudo` seulement si `os.geteuid() != 0`.
+10. **CRITICAL halluciné qui a traversé tout le pipeline.** Le plafonnement de sévérité avait été ajouté à l'agent d'énumération mais oublié sur l'agent de reconnaissance. Le LLM a produit un faux finding "Apache httpd vulnérable à Heartbleed, CVE-2014-0160" (une faille OpenSSL, sans rapport avec Apache httpd, sur une version qui n'y est pas exposée) classé CRITICAL par le modèle lui-même, remonté tel quel jusqu'au badge de risque global de la mission. Leçon retenue dans `CLAUDE.md` : la fonction de plafonnement doit être écrite une fois dans `core/` et appelée par **tous** les agents qui créent des findings, jamais dupliquée ni oubliée agent par agent.
+11. **Poids et durée de build excessifs** dus à `sentence-transformers`/`torch` dans `requirements.txt`, utilisés uniquement pour les embeddings de la mémoire sémantique ChromaDB. Jamais retiré dans la v1 (identifié, non corrigé faute de temps). Correction prévue pour la v2 : embeddings via l'endpoint `/api/embeddings` d'un modèle léger tournant déjà dans le conteneur Ollama, ce qui retire `torch` entièrement des dépendances Python.
+12. **Cible vulnérable initialement embarquée dans `docker-compose.yml`** (un service DVWA). Retirée sur demande explicite : le conteneur applicatif ne doit contenir que le framework, jamais une cible, la cible étant toujours externe et fournie par l'utilisateur.
+
+## 5. Résultats de référence (exécutions réelles, v1)
+
+- Exécution de référence : 35 minutes, 6 findings (5 MEDIUM, 1 LOW), badge global MEDIUM.
+- Deux exécutions répétées sur la même cible (33m50s et 50m11s) : cœur déterministe strictement identique (mêmes findings confirmés, même badge MEDIUM, même finding consolidé 401/403 à 22 chemins), seule la couche spéculative (nombre de pistes proposées par le LLM, durée) a varié. C'est la preuve de reproductibilité du cœur déterministe, pas de généralité.
+- Répartition du temps observée : environ 5 % pour les outils de sécurité, environ 95 % pour l'inférence du modèle local. C'est le problème précis que le changement de modèle en v2 cherche à réduire.

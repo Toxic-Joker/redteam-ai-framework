@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+<div x-data="missionDashboard()" x-init="init()">
+    <section>
+        <h2>Nouvelle mission</h2>
+        <form @submit.prevent="createMission">
+            <div><input x-model="form.mission_name" placeholder="Nom de mission" required></div>
+            <div><input x-model="form.operator" placeholder="Operateur" required></div>
+            <div><input x-model="form.target_host" placeholder="Cible (host, toujours externe)" required></div>
+            <div><input x-model="form.authorization_ref" placeholder="Reference d'autorisation" required></div>
+            <button type="submit">Lancer la mission</button>
+        </form>
+    </section>
+
+    <section>
+        <h2>Missions</h2>
+        <table>
+            <thead>
+                <tr><th>Nom</th><th>Cible</th><th>Statut</th><th>Phase</th><th>Risque</th><th>Rapport</th></tr>
+            </thead>
+            <tbody>
+                <template x-for="m in missions" :key="m.mission_id">
+                    <tr>
+                        <td x-text="m.mission_name"></td>
+                        <td x-text="m.target.host"></td>
+                        <td x-text="m.status"></td>
+                        <td x-text="m.current_agent"></td>
+                        <td><span class="badge" :class="m.overall_risk" x-text="m.overall_risk"></span></td>
+                        <td>
+                            <a :href="'/api/reports/' + m.mission_id + '/download'" x-show="m.status === 'completed'">Telecharger</a>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </section>
+</div>
+
+<script>
+function missionDashboard() {
+    return {
+        form: { mission_name: '', operator: '', target_host: '', authorization_ref: '' },
+        missions: [],
+        async init() {
+            await this.refresh();
+            setInterval(() => this.refresh(), 5000);
+            try {
+                const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+                const ws = new WebSocket(proto + '://' + window.location.host + '/ws/missions');
+                ws.onmessage = () => this.refresh();
+            } catch (e) {
+                // WebSocket optionnel : le polling toutes les 5s suffit en repli.
+            }
+        },
+        async refresh() {
+            const list = await (await fetch('/api/missions')).json();
+            this.missions = await Promise.all(
+                list.map(m => fetch('/api/missions/' + m.mission_id).then(r => r.json()))
+            );
+        },
+        async createMission() {
+            const res = await fetch('/api/missions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.form),
+            });
+            if (res.ok) {
+                this.form = { mission_name: '', operator: '', target_host: '', authorization_ref: '' };
+                await this.refresh();
+            } else {
+                const err = await res.json();
+                alert(err.detail || 'Erreur lors de la creation de la mission');
+            }
+        },
+    };
+}
+</script>
+{% endblock %}

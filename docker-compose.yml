@@ -1,0 +1,47 @@
+# Usage : cp .env.example .env && docker compose up --build
+# Aucune cible vulnerable ici (non negociable, voir PROJECT.md) : la cible
+# est toujours externe, saisie dans le dashboard.
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      - ollama
+    environment:
+      - OLLAMA_HOST=ollama:11434
+      - OLLAMA_MODEL_MAIN=${OLLAMA_MODEL_MAIN:-qwen3.5:9b}
+      - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        until ollama list >/dev/null 2>&1; do sleep 1; done &&
+        ollama pull "$$OLLAMA_MODEL_MAIN" &&
+        ollama pull "$$OLLAMA_EMBED_MODEL"
+    restart: "no"
+
+  framework:
+    build: .
+    depends_on:
+      - ollama
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL_MAIN=${OLLAMA_MODEL_MAIN:-qwen3.5:9b}
+      - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      - REQUIRE_AUTHORIZATION=${REQUIRE_AUTHORIZATION:-true}
+      - NMAP_SCAN_MODE=${NMAP_SCAN_MODE:-syn}
+      - MAX_CYCLES=${MAX_CYCLES:-10}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./reports:/app/reports
+      - ./db:/app/db
+    restart: unless-stopped
+
+volumes:
+  ollama: {}
