@@ -1,0 +1,22 @@
+# Fichier autonome (pas un override) pour un Ollama deja installe sur la
+# machine hote : docker compose -f docker-compose.host-ollama.yml up --build
+# Pas de service ollama/ollama-pull ici.
+services:
+  framework:
+    build: .
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL_MAIN=${OLLAMA_MODEL_MAIN:-qwen3.5:9b}
+      - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      - REQUIRE_AUTHORIZATION=${REQUIRE_AUTHORIZATION:-true}
+      - NMAP_SCAN_MODE=${NMAP_SCAN_MODE:-syn}
+      - MAX_CYCLES=${MAX_CYCLES:-10}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./reports:/app/reports
+      - ./db:/app/db
+    restart: unless-stopped

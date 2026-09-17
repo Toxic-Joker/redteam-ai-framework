@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}RedTeam AI Framework{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 0; background: #0f1115; color: #e6e6e6; }
+        header { padding: 1rem 2rem; background: #161a22; border-bottom: 1px solid #2a2f3a; }
+        header h1 { margin: 0; font-size: 1.2rem; }
+        main { padding: 2rem; max-width: 960px; margin: 0 auto; }
+        section { margin-bottom: 2rem; }
+        .badge { padding: .2rem .6rem; border-radius: .3rem; font-weight: 600; font-size: .8rem; }
+        .CRITICAL { background: #7f1d1d; color: #fecaca; }
+        .HIGH { background: #7c2d12; color: #fed7aa; }
+        .MEDIUM { background: #78350f; color: #fde68a; }
+        .LOW { background: #1e3a8a; color: #bfdbfe; }
+        .INFO { background: #374151; color: #d1d5db; }
+        form div { margin-bottom: .5rem; }
+        input, button { padding: .5rem; border-radius: .3rem; border: 1px solid #2a2f3a; background: #1a1f2b; color: #e6e6e6; font-size: .9rem; }
+        input { width: 100%; max-width: 320px; box-sizing: border-box; }
+        button { cursor: pointer; background: #2563eb; border: none; color: #fff; }
+        button:hover { background: #1d4ed8; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        td, th { padding: .5rem; border-bottom: 1px solid #2a2f3a; text-align: left; font-size: .9rem; }
+        a { color: #60a5fa; }
+    </style>
+</head>
+<body>
+<header><h1>RedTeam AI Framework</h1></header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

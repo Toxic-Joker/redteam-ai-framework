@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Rapport de mission - {{ mission.mission_name }}</title>
+<style>
+    body { font-family: 'DejaVu Sans', sans-serif; color: #111; margin: 2cm; }
+    h1 { border-bottom: 3px solid #111; padding-bottom: .3rem; }
+    .badge { padding: .2rem .6rem; border-radius: .3rem; font-weight: 600; color: #fff; }
+    .CRITICAL { background: #991b1b; }
+    .HIGH { background: #c2410c; }
+    .MEDIUM { background: #a16207; }
+    .LOW { background: #1e40af; }
+    .INFO { background: #4b5563; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    td, th { border: 1px solid #999; padding: .4rem .6rem; text-align: left; font-size: .9rem; }
+    .leads { background: #f3f4f6; padding: 1rem; border-left: 4px solid #a16207; }
+    .meta { font-size: .85rem; color: #555; }
+</style>
+</head>
+<body>
+    <h1>Rapport de test d'intrusion</h1>
+    <p class="meta">
+        Mission : {{ mission.mission_name }} &mdash; Operateur : {{ mission.operator }} &mdash;
+        Reference d'autorisation : {{ mission.authorization_ref or "N/A" }}<br>
+        Cible : {{ mission.target.host }} &mdash; Genere le : {{ generated_at }}
+    </p>
+
+    <h2>Risque global : <span class="badge {{ overall_risk }}">{{ overall_risk }}</span></h2>
+    <p class="meta">Calcule de facon deterministe a partir des findings confirmes uniquement (jamais des pistes, jamais de l'avis du modele de langage).</p>
+
+    <h2>Resume executif</h2>
+    <p>{{ executive_summary }}</p>
+
+    <h2>Findings confirmes ({{ mission.findings|length }})</h2>
+    <table>
+        <thead><tr><th>Severite</th><th>Titre</th><th>Composant affecte</th><th>Decouvert par</th></tr></thead>
+        <tbody>
+        {% for f in mission.findings %}
+            <tr>
+                <td><span class="badge {{ f.severity.name }}">{{ f.severity.name }}</span></td>
+                <td>{{ f.title }}</td>
+                <td>{{ f.affected_component }}</td>
+                <td>{{ f.discovered_by }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="4">Aucun finding confirme.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <h2>Pistes a verifier ({{ mission.leads|length }})</h2>
+    <div class="leads">
+        <p class="meta">Hypotheses non confirmees, proposees par le modele de langage ou l'analyse automatique. N'entrent jamais dans le calcul du risque et ne doivent pas etre traitees comme des findings averes.</p>
+        <table>
+            <thead><tr><th>Piste</th><th>Justification</th><th>Confiance</th><th>Source</th></tr></thead>
+            <tbody>
+            {% for l in mission.leads %}
+                <tr>
+                    <td>{{ l.title }}</td>
+                    <td>{{ l.rationale }}</td>
+                    <td>{{ "%.0f"|format(l.confidence * 100) }}%</td>
+                    <td>{{ l.source }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="4">Aucune piste proposee.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <h2>Chaine d'attaque</h2>
+    <ol>
+    {% for step in mission.attack_chain %}
+        <li>[{{ step.phase }}] {{ step.summary or step.action }}</li>
+    {% endfor %}
+    </ol>
+
+    {% if mission.errors %}
+    <h2>Erreurs rencontrees</h2>
+    <ul>
+    {% for e in mission.errors %}
+        <li>[{{ e.agent }}] {{ e.message }}</li>
+    {% endfor %}
+    </ul>
+    {% endif %}
+</body>
+</html>
