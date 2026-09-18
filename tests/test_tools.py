@@ -5,6 +5,8 @@ import sys
 import pytest
 
 from tools.base import BaseTool, ToolResult
+from tools.commix_tool import CommixTool
+from tools.dalfox_tool import DalfoxTool
 from tools.ffuf_tool import FfufTool
 from tools.gobuster_tool import GobusterTool, resolve_wordlist
 from tools.nikto_tool import NiktoTool
@@ -277,3 +279,63 @@ def test_nuclei_parses_jsonl_matches():
     assert match["name"] == "Exposed Admin Panel"
     assert match["severity"] == "high"
     assert match["matched_at"] == "http://10.0.0.1/admin"
+
+
+def test_dalfox_build_command_uses_scan_subcommand_and_headers_flag(monkeypatch):
+    tool = DalfoxTool()
+    monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/dalfox")
+    args = tool.build_command(url="http://10.0.0.1/?q=1", cookie="PHPSESSID=abc")
+    assert args[1] == "scan"
+    assert "-f" in args and "jsonl" in args
+    assert "--headers" in args
+    assert "Cookie: PHPSESSID=abc" in args
+    assert "--cookie" not in args  # dalfox n'a pas de flag cookie dedie
+
+
+def test_dalfox_parses_jsonl_findings_as_vulnerable():
+    tool = DalfoxTool()
+    stdout = json.dumps({"type": "reflected", "param": "q", "payload": "<script>alert(1)</script>", "severity": "High"})
+    result = ToolResult(tool="dalfox", command=[], returncode=0, stdout=stdout, stderr="", success=True)
+    parsed = tool.parse_output(result)
+    assert parsed["vulnerable"] is True
+    assert parsed["findings"][0]["param"] == "q"
+
+
+def test_dalfox_no_output_means_not_vulnerable():
+    tool = DalfoxTool()
+    result = ToolResult(tool="dalfox", command=[], returncode=0, stdout="", stderr="", success=True)
+    parsed = tool.parse_output(result)
+    assert parsed["vulnerable"] is False
+
+
+def test_commix_build_command_uses_sqlmap_style_flags(monkeypatch):
+    tool = CommixTool()
+    monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/commix")
+    args = tool.build_command(url="http://10.0.0.1/?cmd=1", cookie="PHPSESSID=abc", data="a=1")
+    assert "-u" in args
+    assert "--cookie" in args and "PHPSESSID=abc" in args
+    assert "--data" in args and "a=1" in args
+    assert "--batch" in args
+
+
+def test_commix_does_not_flag_negative_result_as_vulnerable():
+    tool = CommixTool()
+    stdout = "Detected a false positive or unexploitable injection point\nGET parameter 'cmd' seems unaffected.\n"
+    result = ToolResult(tool="commix", command=[], returncode=0, stdout=stdout, stderr="", success=True)
+    parsed = tool.parse_output(result)
+    assert parsed["vulnerable"] is False
+
+
+def test_commix_flags_genuine_positive_result_as_vulnerable():
+    tool = CommixTool()
+    stdout = "The (GET) 'cmd' parameter is vulnerable to Results-based Command Injection.\n"
+    result = ToolResult(tool="commix", command=[], returncode=0, stdout=stdout, stderr="", success=True)
+    parsed = tool.parse_output(result)
+    assert parsed["vulnerable"] is True
+
+
+def test_commix_is_success_accepts_clean_not_vulnerable_exit_code():
+    tool = CommixTool()
+    assert tool.is_success(0) is True
+    assert tool.is_success(1) is True
+    assert tool.is_success(2) is False

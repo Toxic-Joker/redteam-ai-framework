@@ -101,7 +101,8 @@ Le modèle tourne dans un conteneur Ollama séparé, jamais dans l'image du fram
      Recon       Enum     Exploit   Postexploit   Rapport
         |          |         |         |           |
         +----------+---------+---------+-----------+
-                    | (outils : nmap, gobuster, nikto, sqlmap, ffuf, crawler HTML)
+                    | (outils : nmap, gobuster, nikto, sqlmap, ffuf, crawler HTML,
+                    | nuclei, dalfox, commix)
                     v
               MissionState (SQLite)
               + mémoire sémantique (ChromaDB, embeddings via Ollama)
@@ -118,7 +119,7 @@ Composants (repris du projet précédent, corrections de la section 2 intégrée
 
 - **`core/`** : `state.py` (MissionState, Finding, Lead, enums, fonctions déterministes), `orchestrator.py` (graphe LangGraph, garde-fous anti-boucle dès le départ), `memory.py` (SQLite + ChromaDB), `config.py` (Pydantic Settings, une seule source de vérité par variable).
 - **`agents/`** : `base_agent.py`, `recon_agent.py`, `enum_agent.py`, `exploit_agent.py`, `postexploit_agent.py`, `report_agent.py`. Tous les agents qui créent des findings appellent la fonction de plafonnement de `core/state.py`, jamais une réimplémentation locale.
-- **`tools/`** : `base.py`, `nmap_tool.py` (`-Pn` systématique), `gobuster_tool.py`, `nikto_tool.py`, `sqlmap_tool.py`, `ffuf_tool.py`, `crawler_tool.py` (client HTTP asynchrone pur, n'hérite pas de `BaseTool` : pas de binaire externe ni de sous-processus).
+- **`tools/`** : `base.py`, `nmap_tool.py` (`-Pn` systématique), `gobuster_tool.py`, `nikto_tool.py`, `sqlmap_tool.py`, `ffuf_tool.py`, `nuclei_tool.py`, `dalfox_tool.py` (XSS), `commix_tool.py` (injection de commandes), `crawler_tool.py` (client HTTP asynchrone pur, n'hérite pas de `BaseTool` : pas de binaire externe ni de sous-processus).
 - **`api/`** : routes REST (missions, reports, agents), WebSocket temps réel, `GET /health` (connectivité Ollama — sans lui, un backend LLM injoignable degrade silencieusement chaque `ask_llm` en `{}` sans aucun signal visible).
 - **`templates/`** : `dashboard.html`, `report.html` (section "Pistes à vérifier" dès le premier gabarit).
 
@@ -257,8 +258,8 @@ Contrat pour `nmap_tool.py` :
 - Base : `python:3.11-slim-bookworm`, épinglée.
 - Build multi-étapes : une étape pour compiler d'éventuelles roues Python, l'étape finale ne copie que le nécessaire à l'exécution (pas les outils de compilation, pas `requirements-dev.txt`).
 - Paquets système : `nmap`, `bind9-dnsutils`, `perl` + les 4 modules Perl de nikto (section 2), dépendances WeasyPrint (`libpango-1.0-0`, `libpangocairo-1.0-0`, `libgdk-pixbuf-2.0-0`, `libffi-dev`, `libcairo2`, `shared-mime-info`, `fonts-dejavu-core`), `git`, `curl`, `wget`, `ca-certificates`, `tar`, `unzip` (nuclei distribue en `.zip`, pas `.tar.gz`).
-- `nikto` et `sqlmap` : clonés depuis GitHub (tag de release épinglé si possible), wrapper shell sur le PATH.
-- `gobuster`, `ffuf` et `nuclei` : binaires de release GitHub, multi-arch, noms cohérents avec le code. Nommage réel de chaque outil vérifié individuellement via l'API GitHub avant écriture (voir section 2 : ne jamais supposer qu'un outil suit le même schéma qu'un autre du même Dockerfile - `nuclei` utilise un `.zip`, `gobuster` un nommage `Linux_x86_64` différent de `ffuf`). Templates `nuclei` pré-téléchargés à la construction (`nuclei -update-templates`), tolérant à un échec réseau au build (`|| true` : se rattrape au premier lancement réel).
+- `nikto`, `sqlmap` et `commix` : clonés depuis GitHub (tag de release épinglé si possible), wrapper shell sur le PATH. `commix` reprend directement l'architecture CLI de `sqlmap` (mêmes conventions), confirmé via son propre code source avant écriture, jamais supposé par analogie.
+- `gobuster`, `ffuf`, `nuclei` et `dalfox` : binaires de release GitHub, multi-arch, noms cohérents avec le code. Nommage réel de chaque outil vérifié individuellement via l'API GitHub avant écriture (voir section 2 : ne jamais supposer qu'un outil suit le même schéma qu'un autre du même Dockerfile - `nuclei` utilise un `.zip`, `gobuster` un nommage `Linux_x86_64`, `dalfox` un nommage `dalfox-vX.Y.Z-linux-aarch64.tar.gz` encore différent des trois autres). Templates `nuclei` pré-téléchargés à la construction (`nuclei -update-templates`), tolérant à un échec réseau au build (`|| true` : se rattrape au premier lancement réel).
 - Wordlist : SecLists `common.txt` téléchargée dans l'image.
 - `requirements.txt` : FastAPI, LangGraph, langchain-ollama, SQLAlchemy+aiosqlite, ChromaDB (sans `sentence-transformers`/`torch`), Jinja2, WeasyPrint, python-nmap, dnspython, httpx, `beautifulsoup4` (backend `html.parser`, pas de `lxml`), websockets, loguru.
 
