@@ -46,7 +46,7 @@ Chaque ligne correspond à un incident réel documenté dans `docs/HISTORY.md`, 
 - [ ] Une seule source de vérité pour le nom du modèle : une variable d'environnement, lue à un seul endroit (`core/config.py`), propagée partout.
 - [ ] Pas de `torch` ni `sentence-transformers` dans les dépendances Python : embeddings via l'endpoint d'Ollama (section 8).
 - [ ] Wordlist de gobuster résolue avec vérification d'existence (`os.path.exists`) et repli sur un chemin connu.
-- [ ] Le plafonnement de sévérité doit être appliqué par **tous** les agents qui créent des findings, sans exception, en particulier l'agent de reconnaissance. Écrire la fonction une fois dans `core/`, l'appeler partout, jamais la dupliquer.
+- [ ] Le plafonnement de sévérité s'applique via un seul point structurel (`Finding.__post_init__` dans `core/state.py`), jamais par appel explicite dans un agent. **Mis à jour en cours de route** : les agents appelaient initialement `cap_severity` eux-mêmes avant de construire chaque `Finding` (conforme à l'intention d'origine de cette règle) ; retiré après qu'un `Finding` déjà pré-plafonné par l'agent empêchait `__post_init__` de jamais détecter un écart réel entre la sévérité voulue et la sévérité finale, rendant la note de transparence (voir contrat `Finding` ci-dessous) inopérante en pratique. Les agents passent maintenant la sévérité "voulue" telle quelle ; `Finding.__post_init__` reste l'unique endroit qui plafonne, structurellement impossible à contourner ou à oublier (incident #10).
 - [ ] La limite de cycles et le suivi des phases terminées de l'orchestrateur doivent exister depuis le premier commit du graphe, pas être ajoutés après avoir observé une boucle infinie.
 - [ ] Un guess `-O` (détection d'OS) à faible confiance ne doit jamais apparaître comme un fait dans un rapport.
 - [ ] Détection de vulnérabilité `sqlmap` : ne jamais combiner des mots-clés indépendants présents n'importe où dans la sortie (`"parameter" in stdout and "injectable" in stdout`) — `sqlmap` imprime aussi ces deux mots dans ses messages **négatifs** (`"parameter 'id' is NOT injectable"`). Un seul signal positif non ambigu, vérifié ligne par ligne (voir `docs/HISTORY.md`, section 6).
@@ -256,11 +256,11 @@ Contrat pour `nmap_tool.py` :
 
 - Base : `python:3.11-slim-bookworm`, épinglée.
 - Build multi-étapes : une étape pour compiler d'éventuelles roues Python, l'étape finale ne copie que le nécessaire à l'exécution (pas les outils de compilation, pas `requirements-dev.txt`).
-- Paquets système : `nmap`, `bind9-dnsutils`, `perl` + les 4 modules Perl de nikto (section 2), dépendances WeasyPrint (`libpango-1.0-0`, `libpangocairo-1.0-0`, `libgdk-pixbuf-2.0-0`, `libffi-dev`, `libcairo2`, `shared-mime-info`, `fonts-dejavu-core`), `git`, `curl`, `wget`, `ca-certificates`, `tar`.
+- Paquets système : `nmap`, `bind9-dnsutils`, `perl` + les 4 modules Perl de nikto (section 2), dépendances WeasyPrint (`libpango-1.0-0`, `libpangocairo-1.0-0`, `libgdk-pixbuf-2.0-0`, `libffi-dev`, `libcairo2`, `shared-mime-info`, `fonts-dejavu-core`), `git`, `curl`, `wget`, `ca-certificates`, `tar`, `unzip` (nuclei distribue en `.zip`, pas `.tar.gz`).
 - `nikto` et `sqlmap` : clonés depuis GitHub (tag de release épinglé si possible), wrapper shell sur le PATH.
-- `gobuster` et `ffuf` : binaires de release GitHub, multi-arch, noms cohérents avec le code.
+- `gobuster`, `ffuf` et `nuclei` : binaires de release GitHub, multi-arch, noms cohérents avec le code. Nommage réel de chaque outil vérifié individuellement via l'API GitHub avant écriture (voir section 2 : ne jamais supposer qu'un outil suit le même schéma qu'un autre du même Dockerfile - `nuclei` utilise un `.zip`, `gobuster` un nommage `Linux_x86_64` différent de `ffuf`). Templates `nuclei` pré-téléchargés à la construction (`nuclei -update-templates`), tolérant à un échec réseau au build (`|| true` : se rattrape au premier lancement réel).
 - Wordlist : SecLists `common.txt` téléchargée dans l'image.
-- `requirements.txt` : FastAPI, LangGraph, langchain-ollama, SQLAlchemy+aiosqlite, ChromaDB (sans `sentence-transformers`/`torch`), Jinja2, WeasyPrint, python-nmap, dnspython, httpx, websockets, loguru.
+- `requirements.txt` : FastAPI, LangGraph, langchain-ollama, SQLAlchemy+aiosqlite, ChromaDB (sans `sentence-transformers`/`torch`), Jinja2, WeasyPrint, python-nmap, dnspython, httpx, `beautifulsoup4` (backend `html.parser`, pas de `lxml`), websockets, loguru.
 
 ### Embeddings sans torch
 
@@ -302,7 +302,7 @@ Profils additionnels en fichiers séparés (pas dans le compose principal, pour 
 
 | Élément | Taille approx. |
 |---|---|
-| Image `framework` (sans torch) | 0.9 à 1.2 Go |
+| Image `framework` (sans torch, inclut les templates `nuclei`) | 1.2 à 1.6 Go (à confirmer au premier build - les templates `nuclei` ajoutent une taille non négligeable non mesurée dans cet environnement) |
 | Image `ollama` (CPU, sans CUDA) | 1.5 à 2 Go |
 | `qwen3.5:9b` (défaut) | ~5 à 6 Go |
 | Modèle d'embeddings (`nomic-embed-text`) | 0.27 Go |
@@ -337,7 +337,7 @@ Marge confortable sous le plafond de sécurité de 25 Go, même en configuration
 1. `core/state.py` avec les fonctions déterministes (section 7) et leurs tests unitaires en premier, avant tout agent.
 2. `core/config.py` avec les variables d'environnement de la section 9, une seule fois.
 3. `tools/` un par un, chaque outil avec son test (commande générée, parsing de sortie).
-4. `agents/base_agent.py` puis chaque agent, chacun appelant systématiquement `cap_severity` avant de créer un finding.
+4. `agents/base_agent.py` puis chaque agent, chacun passant la sévérité "voulue" directement à `Finding` sans la plafonner lui-même - `Finding.__post_init__` est l'unique point d'application de `cap_severity`.
 5. `core/orchestrator.py` avec la limite de cycles et le suivi des phases terminées dès la première version du graphe.
 6. `templates/report.html` avec la section "Pistes à vérifier" dès le premier gabarit.
 7. `api/` et `templates/dashboard.html`.
