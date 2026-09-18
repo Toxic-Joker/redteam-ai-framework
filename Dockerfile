@@ -122,6 +122,11 @@ RUN set -eux; \
 # ffuf, nuclei) - verifie individuellement via l'API GitHub, jamais suppose :
 # "dalfox-vX.Y.Z-linux-x86_64.tar.gz" (le "v" du tag est conserve dans le nom
 # de fichier ici) et "aarch64" plutot que "arm64" pour la variante ARM.
+# Piege supplementaire trouve en build reel (pas seulement le nom de
+# l'archive, sa structure interne aussi) : contrairement a gobuster/ffuf/
+# nuclei qui extraient le binaire a la racine, dalfox l'imbrique dans un
+# sous-dossier "dalfox-vX.Y.Z-linux-<arch>/dalfox" - d'ou --strip-components=1
+# plutot qu'un nom de fichier fixe dans l'appel tar.
 RUN set -eux; \
     case "${TARGETARCH:-amd64}" in \
         amd64) DALFOX_ARCH=x86_64 ;; \
@@ -130,9 +135,10 @@ RUN set -eux; \
     esac; \
     curl -fsSL -o /tmp/dalfox.tar.gz \
         "https://github.com/hahwul/dalfox/releases/download/${DALFOX_VERSION}/dalfox-${DALFOX_VERSION}-linux-${DALFOX_ARCH}.tar.gz"; \
-    tar -xzf /tmp/dalfox.tar.gz -C /tmp dalfox; \
-    install -m 0755 /tmp/dalfox /usr/local/bin/dalfox; \
-    rm -f /tmp/dalfox.tar.gz /tmp/dalfox
+    mkdir -p /tmp/dalfox-extract; \
+    tar -xzf /tmp/dalfox.tar.gz -C /tmp/dalfox-extract --strip-components=1; \
+    install -m 0755 /tmp/dalfox-extract/dalfox /usr/local/bin/dalfox; \
+    rm -rf /tmp/dalfox.tar.gz /tmp/dalfox-extract
 
 # commix : meme probleme que nikto/sqlmap (pas de paquet apt fiable), meme
 # correction - clone GitHub + wrapper shell. Reprend directement l'architecture
