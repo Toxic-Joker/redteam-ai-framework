@@ -232,16 +232,28 @@ def test_enforce_progression_allows_end_only_after_report_completed():
     assert next_phase == "end"
 
 
-def test_enforce_progression_honors_a_forward_skip_suggestion():
-    """Documente un comportement intentionnel : une suggestion du LLM
+def test_enforce_progression_rejects_a_forward_skip_suggestion():
+    """Regression directe : une suggestion du LLM (MissionState.last_decision)
 
-    (MissionState.last_decision) peut faire sauter une phase intermediaire.
-    Ce n'est pas un bug - le filet de securite (voir core/orchestrator.py)
-    finit par y revenir de lui-meme si rien ne la recontourne ensuite.
+    a saute "enum" pour aller droit a "exploit" lors d'un deploiement reel,
+    privant exploit_agent des URLs qu'enum aurait decouvertes (moins de
+    cibles testees). Une suggestion ne peut plus jamais sauter une phase
+    intermediaire non terminee - seule la vraie phase suivante, ou un saut
+    direct vers "report" (fin anticipee), est honore.
     """
     mission = make_mission(completed_phases=["recon"])
     next_phase = enforce_progression(mission, "exploit", max_cycles=10)
-    assert next_phase == "exploit"
+    assert next_phase == "enum"
+
+
+def test_enforce_progression_still_honors_an_early_report_suggestion():
+    """Le seul saut qui reste autorise : terminer plus tot en allant
+
+    directement a "report", puisque rien en aval ne depend de son resultat.
+    """
+    mission = make_mission(completed_phases=["recon", "enum"])
+    next_phase = enforce_progression(mission, "report", max_cycles=10)
+    assert next_phase == "report"
 
 
 def test_enforce_progression_treats_invalid_phase_like_a_repeat():

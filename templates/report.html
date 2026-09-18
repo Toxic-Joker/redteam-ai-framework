@@ -2,87 +2,258 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>Rapport de mission - {{ mission.mission_name }}</title>
+<title>Rapport de Test d'Intrusion — {{ mission.mission_name }}</title>
 <style>
-    body { font-family: 'DejaVu Sans', sans-serif; color: #111; margin: 2cm; }
-    h1 { border-bottom: 3px solid #111; padding-bottom: .3rem; }
-    .badge { padding: .2rem .6rem; border-radius: .3rem; font-weight: 600; color: #fff; }
-    .CRITICAL { background: #991b1b; }
-    .HIGH { background: #c2410c; }
-    .MEDIUM { background: #a16207; }
-    .LOW { background: #1e40af; }
-    .INFO { background: #4b5563; }
-    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
-    td, th { border: 1px solid #999; padding: .4rem .6rem; text-align: left; font-size: .9rem; }
-    .leads { background: #f3f4f6; padding: 1rem; border-left: 4px solid #a16207; }
-    .meta { font-size: .85rem; color: #555; }
+  :root {
+    --critical: #dc2626; --high: #ea580c; --medium: #d97706;
+    --low: #16a34a;      --info: #2563eb;
+    --bg: #f8fafc;       --text: #1e293b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DejaVu Sans', 'Segoe UI', Arial, sans-serif; background: var(--bg);
+         color: var(--text); font-size: 14px; line-height: 1.6; }
+
+  .cover { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+           color: white; padding: 80px 60px; min-height: 100vh;
+           display: flex; flex-direction: column; justify-content: center; }
+  .cover h1 { font-size: 36px; margin-bottom: 8px; }
+  .cover .subtitle { font-size: 18px; opacity: 0.7; margin-bottom: 60px; }
+  .cover-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .cover-meta-item { background: rgba(255,255,255,0.05); border-radius: 8px;
+                     padding: 16px; border-left: 3px solid #3b82f6; }
+  .cover-meta-item .label { font-size: 11px; opacity: 0.6; text-transform: uppercase;
+                             letter-spacing: 1px; margin-bottom: 4px; }
+  .cover-meta-item .value { font-size: 16px; font-weight: 600; }
+  .risk-badge { display: inline-block; padding: 4px 14px; border-radius: 999px;
+                font-weight: 700; font-size: 13px; text-transform: uppercase; color: white; }
+  .risk-critical { background: var(--critical); }
+  .risk-high     { background: var(--high); }
+  .risk-medium   { background: var(--medium); }
+  .risk-low      { background: var(--low); }
+  .risk-info     { background: var(--info); }
+
+  .container { max-width: 1000px; margin: 0 auto; padding: 40px 40px; }
+  .page-break { page-break-before: always; margin-top: 60px; }
+
+  h2 { font-size: 22px; color: #1e293b; border-bottom: 3px solid #3b82f6;
+       padding-bottom: 8px; margin: 40px 0 20px; }
+  h3 { font-size: 16px; color: #334155; margin: 24px 0 12px; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin: 24px 0; }
+  .stat-card  { border-radius: 10px; padding: 20px; text-align: center; color: white; }
+  .stat-card .count { font-size: 36px; font-weight: 800; }
+  .stat-card .label { font-size: 12px; opacity: 0.85; text-transform: uppercase; }
+  .stat-critical { background: var(--critical); }
+  .stat-high     { background: var(--high); }
+  .stat-medium   { background: var(--medium); }
+  .stat-low      { background: var(--low); }
+  .stat-info     { background: var(--info); }
+
+  .finding { border-radius: 10px; border: 1px solid #e2e8f0; margin: 16px 0; overflow: hidden; }
+  .finding-header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; background: #f1f5f9; }
+  .finding-body   { padding: 20px; }
+  .finding-body p { margin-bottom: 12px; }
+  .finding-body strong { color: #475569; font-size: 12px; text-transform: uppercase;
+                          letter-spacing: 0.5px; display: block; margin-bottom: 4px; }
+  .evidence { background: #0f172a; color: #94a3b8; padding: 12px 16px;
+              border-radius: 6px; font-family: monospace; font-size: 12px;
+              white-space: pre-wrap; word-break: break-all; margin: 8px 0; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .tag { background: #e2e8f0; color: #475569; padding: 2px 10px; border-radius: 999px; font-size: 11px; }
+  .tag-exploited { background: var(--critical); color: white; }
+
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+  th { background: #1e293b; color: white; padding: 10px 14px; text-align: left; }
+  td { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; }
+  tr:nth-child(even) td { background: #f8fafc; }
+
+  .reco-list { list-style: none; }
+  .reco-list li { padding: 12px 16px; margin: 8px 0; border-radius: 8px;
+                  border-left: 4px solid #3b82f6; background: #eff6ff; }
+  .reco-urgent { border-color: var(--critical); background: #fef2f2; }
+  .reco-lead { border-color: var(--medium); background: #fffbeb; }
+
+  .meta { font-size: .85rem; color: #555; }
+
+  @media print {
+    .cover { min-height: auto; }
+    .page-break { page-break-before: always; }
+  }
 </style>
 </head>
 <body>
-    <h1>Rapport de test d'intrusion</h1>
-    <p class="meta">
-        Mission : {{ mission.mission_name }} &mdash; Operateur : {{ mission.operator }} &mdash;
-        Reference d'autorisation : {{ mission.authorization_ref or "N/A" }}<br>
-        Cible : {{ mission.target.host }} &mdash; Genere le : {{ generated_at }}
-    </p>
 
-    <h2>Risque global : <span class="badge {{ overall_risk }}">{{ overall_risk }}</span></h2>
-    <p class="meta">Calcule de facon deterministe a partir des findings confirmes uniquement (jamais des pistes, jamais de l'avis du modele de langage).</p>
-
-    <h2>Resume executif</h2>
-    <p>{{ executive_summary }}</p>
-
-    <h2>Findings confirmes ({{ mission.findings|length }})</h2>
-    <table>
-        <thead><tr><th>Severite</th><th>Titre</th><th>Composant affecte</th><th>Decouvert par</th></tr></thead>
-        <tbody>
-        {% for f in mission.findings %}
-            <tr>
-                <td><span class="badge {{ f.severity.name }}">{{ f.severity.name }}</span></td>
-                <td>{{ f.title }}</td>
-                <td>{{ f.affected_component }}</td>
-                <td>{{ f.discovered_by }}</td>
-            </tr>
-        {% else %}
-            <tr><td colspan="4">Aucun finding confirme.</td></tr>
-        {% endfor %}
-        </tbody>
-    </table>
-
-    <h2>Pistes a verifier ({{ mission.leads|length }})</h2>
-    <div class="leads">
-        <p class="meta">Hypotheses non confirmees, proposees par le modele de langage ou l'analyse automatique. N'entrent jamais dans le calcul du risque et ne doivent pas etre traitees comme des findings averes.</p>
-        <table>
-            <thead><tr><th>Piste</th><th>Justification</th><th>Confiance</th><th>Source</th></tr></thead>
-            <tbody>
-            {% for l in mission.leads %}
-                <tr>
-                    <td>{{ l.title }}</td>
-                    <td>{{ l.rationale }}</td>
-                    <td>{{ "%.0f"|format(l.confidence * 100) }}%</td>
-                    <td>{{ l.source }}</td>
-                </tr>
-            {% else %}
-                <tr><td colspan="4">Aucune piste proposee.</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
+<div class="cover">
+  <h1>Rapport de Test d'Intrusion</h1>
+  <div class="subtitle">{{ mission.mission_name }}</div>
+  <div class="cover-meta">
+    <div class="cover-meta-item">
+      <div class="label">Cible</div>
+      <div class="value">{{ mission.target.host }}</div>
     </div>
+    <div class="cover-meta-item">
+      <div class="label">Operateur</div>
+      <div class="value">{{ mission.operator }}</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="label">Date</div>
+      <div class="value">{{ created_at_display }}</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="label">Reference d'autorisation</div>
+      <div class="value">{{ mission.authorization_ref or 'N/A' }}</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="label">Niveau de risque global</div>
+      <div class="value"><span class="risk-badge risk-{{ overall_risk|lower }}">{{ overall_risk }}</span></div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="label">Duree de la mission</div>
+      <div class="value">{{ duration }}</div>
+    </div>
+  </div>
+</div>
 
-    <h2>Chaine d'attaque</h2>
-    <ol>
-    {% for step in mission.attack_chain %}
-        <li>[{{ step.phase }}] {{ step.summary or step.action }}</li>
-    {% endfor %}
-    </ol>
+<div class="container">
 
-    {% if mission.errors %}
-    <h2>Erreurs rencontrees</h2>
-    <ul>
-    {% for e in mission.errors %}
-        <li>[{{ e.agent }}] {{ e.message }}</li>
-    {% endfor %}
-    </ul>
+<h2>1. Resume executif</h2>
+<p>{{ executive_summary }}</p>
+<p class="meta">Calcule de facon deterministe a partir des findings confirmes uniquement (jamais des pistes, jamais de l'avis du modele de langage) pour le risque global ci-dessus ; seul ce paragraphe est redige par le modele local.</p>
+
+{% if key_risks %}
+<h3>Risques principaux identifies</h3>
+<ul class="reco-list">
+  {% for risk in key_risks %}
+  <li class="reco-urgent">{{ risk }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<h2>2. Synthese des findings</h2>
+<div class="stats-grid">
+  <div class="stat-card stat-critical"><div class="count">{{ findings_by_severity.critical|length }}</div><div class="label">Critical</div></div>
+  <div class="stat-card stat-high"><div class="count">{{ findings_by_severity.high|length }}</div><div class="label">High</div></div>
+  <div class="stat-card stat-medium"><div class="count">{{ findings_by_severity.medium|length }}</div><div class="label">Medium</div></div>
+  <div class="stat-card stat-low"><div class="count">{{ findings_by_severity.low|length }}</div><div class="label">Low</div></div>
+  <div class="stat-card stat-info"><div class="count">{{ findings_by_severity.info|length }}</div><div class="label">Info</div></div>
+</div>
+
+<h2 class="page-break">3. Findings detailles ({{ mission.findings|length }})</h2>
+{% for severity in ['critical', 'high', 'medium', 'low', 'info'] %}
+{% set sev_findings = findings_by_severity[severity] %}
+{% if sev_findings %}
+<h3>{{ severity|upper }} ({{ sev_findings|length }})</h3>
+{% for finding in sev_findings %}
+<div class="finding">
+  <div class="finding-header">
+    <span class="risk-badge risk-{{ severity }}">{{ severity|upper }}</span>
+    <strong>{{ finding.title }}</strong>
+  </div>
+  <div class="finding-body">
+    <strong>Composant affecte</strong><p>{{ finding.affected_component }}</p>
+    <strong>Description</strong><p style="white-space:pre-wrap;">{{ finding.description }}</p>
+    {% if finding.evidence %}
+    <strong>Preuve</strong>
+    <div class="evidence">{{ finding.evidence[:500] }}</div>
     {% endif %}
+    {% if finding.remediation %}
+    <strong>Recommandation</strong><p>{{ finding.remediation }}</p>
+    {% endif %}
+    {% if finding.cve %}
+    <strong>CVE</strong><p>{{ finding.cve }}</p>
+    {% endif %}
+    <div class="tags">
+      <span class="tag">decouvert par : {{ finding.discovered_by }}</span>
+      {% if finding.exploited %}<span class="tag tag-exploited">exploite</span>{% endif %}
+      {% for tag in finding.tags %}<span class="tag">{{ tag }}</span>{% endfor %}
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% if mission.findings|length == 0 %}
+<p class="meta">Aucun finding confirme.</p>
+{% endif %}
+
+<h2 class="page-break">4. Pistes a verifier ({{ mission.leads|length }})</h2>
+<p class="meta">Hypotheses non confirmees, proposees par le modele de langage ou l'analyse automatique. N'entrent jamais dans le calcul du risque et ne doivent pas etre traitees comme des findings averes.</p>
+{% for lead in mission.leads %}
+<div class="finding">
+  <div class="finding-header">
+    <span class="risk-badge" style="background:#e9a93c;">PISTE</span>
+    <strong>{{ lead.title }}</strong>
+  </div>
+  <div class="finding-body">
+    <strong>Justification</strong><p>{{ lead.rationale }}</p>
+    <div class="tags">
+      <span class="tag">source : {{ lead.source }}</span>
+      <span class="tag">confiance : {{ "%.0f"|format(lead.confidence * 100) }}%</span>
+    </div>
+  </div>
+</div>
+{% else %}
+<p class="meta">Aucune piste proposee.</p>
+{% endfor %}
+
+<h2 class="page-break">5. Chaine d'attaque</h2>
+<table>
+  <tr><th>#</th><th>Phase</th><th>Detail</th></tr>
+  {% for step in mission.attack_chain %}
+  <tr>
+    <td>{{ loop.index }}</td>
+    <td>{{ step.phase }}</td>
+    <td>
+      {{ step.summary or step.action or '' }}
+      {% if step.target %} &mdash; {{ step.target }}{% endif %}
+      {% if step.result %} ({{ step.result }}){% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2 class="page-break">6. Recommandations prioritaires</h2>
+{% if immediate_actions %}
+<h3>Actions immediates</h3>
+<ul class="reco-list">
+  {% for action in immediate_actions %}
+  <li class="reco-urgent">{{ action }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<h3>Recommandations par finding</h3>
+<ul class="reco-list">
+{% for finding in mission.findings %}
+{% if finding.remediation %}
+<li><strong>[{{ finding.severity.name }}]</strong> {{ finding.remediation }}</li>
+{% endif %}
+{% endfor %}
+</ul>
+
+<h2>7. Informations techniques</h2>
+<table>
+  <tr><th>Parametre</th><th>Valeur</th></tr>
+  <tr><td>Cible</td><td>{{ mission.target.host }}</td></tr>
+  <tr><td>OS detecte (confiance elevee uniquement)</td><td>{{ mission.target.os_guess or 'Non determine' }}</td></tr>
+  <tr><td>Ports ouverts</td><td>{{ mission.target.ports or 'Aucun' }}</td></tr>
+  <tr><td>Phases completees</td><td>{{ mission.completed_phases|join(', ') }}</td></tr>
+  <tr><td>Cycles d'orchestration</td><td>{{ mission.orchestration_cycles }}</td></tr>
+  <tr><td>Outils executes</td><td>{{ mission.tool_results|length }}</td></tr>
+  <tr><td>Etapes de la chaine d'attaque</td><td>{{ mission.attack_chain|length }}</td></tr>
+  <tr><td>Duree totale</td><td>{{ duration }}</td></tr>
+  <tr><td>Genere le</td><td>{{ generated_at }}</td></tr>
+</table>
+
+{% if mission.errors %}
+<h2>8. Erreurs rencontrees</h2>
+<ul class="reco-list">
+{% for e in mission.errors %}
+<li>[{{ e.agent }}] {{ e.message }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+</div>
 </body>
 </html>

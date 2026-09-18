@@ -70,6 +70,12 @@ class EnumAgent(BaseAgent):
                         affected_component=base_url,
                         evidence=", ".join(sorted(p["path"] for p in accessible)),
                         discovered_by=self.name,
+                        remediation=(
+                            "Verifier que chaque chemin expose est intentionnel. Retirer ou "
+                            "restreindre l'acces aux ressources qui ne sont pas destinees a etre "
+                            "publiques (interfaces d'administration, fichiers de configuration, "
+                            "sauvegardes)."
+                        ),
                         tags=["enumeration"],
                     )
                 )
@@ -86,6 +92,12 @@ class EnumAgent(BaseAgent):
                         affected_component=base_url,
                         evidence="\n".join(items[:50]),
                         discovered_by=self.name,
+                        remediation=(
+                            "Examiner individuellement chaque element signale par Nikto (bannieres "
+                            "de version, fichiers exposes, en-tetes manquants) et appliquer les "
+                            "correctifs ou durcissements recommandes par l'editeur du service "
+                            "concerne."
+                        ),
                         tags=["nikto"],
                     )
                 )
@@ -94,8 +106,10 @@ class EnumAgent(BaseAgent):
             system_prompt=(
                 "Tu es un assistant d'enumeration web en test d'intrusion autorise. "
                 "Tu proposes des pistes a explorer, tu ne decides jamais d'une severite. "
-                "Tu peux suggerer la prochaine phase parmi exploit, postexploit, report "
-                "si les resultats le justifient ; l'orchestrateur reste seul juge final et peut l'ignorer. "
+                "La prochaine phase normale est exploit : tu n'as pas besoin de le repeter. "
+                "Tu peux seulement suggerer de clore la mission plus tot en repondant "
+                "next_phase_suggestion: report, si et seulement si tu juges qu'aucune suite "
+                "n'apportera rien (l'orchestrateur reste seul juge final et peut l'ignorer). "
                 'Reponds uniquement en JSON: {"summary": str, "suggested_leads": [str, ...], '
                 '"next_phase_suggestion": str}.'
             ),

@@ -7,12 +7,15 @@ Le LLM peut influencer la prochaine phase (MissionState.last_decision, lu
 depuis le meme appel de resume que chaque agent fait deja en fin de phase -
 aucun appel d'inference supplementaire), mais n'a jamais le dernier mot :
 enforce_progression() reste seul juge final et peut ignorer, corriger ou
-annuler toute suggestion (phase invalide, deja terminee, ou tentative de finir
-sans etre passe par "report"). Une suggestion peut faire sauter une phase
-(ex. recon -> exploit directement) ; si la phase sautee n'est jamais
-revalidee par un signal deterministe, le filet de securite finit par y
-revenir de lui-meme des qu'aucune suggestion ne la contourne plus, borne par
-MAX_CYCLES dans tous les cas.
+annuler toute suggestion (phase invalide, deja terminee, tentative de finir
+sans etre passe par "report", ou saut par-dessus une phase intermediaire non
+terminee). Ce dernier point n'est pas theorique : une suggestion recon ->
+exploit a reellement saute "enum" lors d'un deploiement, privant exploit de
+donnees dont il depend (state.scratch["enum"]["candidate_urls"]) et reduisant
+le nombre de cibles testees. Seuls deux resultats sont donc possibles : la
+phase suivante reelle de l'ordre lineaire, ou un saut direct vers "report"
+(fin anticipee, jamais problematique puisque rien en aval n'en depend). Borne
+par MAX_CYCLES dans tous les cas. Voir docs/HISTORY.md.
 """
 from __future__ import annotations
 

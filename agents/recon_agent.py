@@ -128,6 +128,11 @@ class ReconAgent(BaseAgent):
                         evidence=script.get("output", ""),
                         discovered_by=self.name,
                         exploited=False,
+                        remediation=(
+                            f"Examiner le resultat du script nmap {script['id']} et appliquer le "
+                            "correctif ou le durcissement de configuration recommande par l'editeur "
+                            "du service concerne. Desactiver ce service s'il n'est pas necessaire."
+                        ),
                         tags=["nmap-vuln"],
                     )
                 )
@@ -136,8 +141,10 @@ class ReconAgent(BaseAgent):
             system_prompt=(
                 "Tu es un assistant de reconnaissance reseau en test d'intrusion autorise. "
                 "Tu resumes les resultats bruts d'outils, tu ne decides jamais d'une severite. "
-                "Tu peux suggerer la prochaine phase parmi enum, exploit, postexploit, report "
-                "si les resultats le justifient ; l'orchestrateur reste seul juge final et peut l'ignorer. "
+                "La prochaine phase normale est enum : tu n'as pas besoin de le repeter. "
+                "Tu peux seulement suggerer de clore la mission plus tot en repondant "
+                "next_phase_suggestion: report, si et seulement si tu juges qu'aucune suite "
+                "n'apportera rien (l'orchestrateur reste seul juge final et peut l'ignorer). "
                 'Reponds uniquement en JSON: {"summary": str, "suggested_leads": [str, ...], '
                 '"next_phase_suggestion": str}.'
             ),
