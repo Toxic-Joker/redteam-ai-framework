@@ -7,3 +7,7 @@ db/
 .env
 .pytest_cache/
 *.egg-info/
+
+# Local-only reference material (old project version, sample reports, etc.)
+# dropped here for context during a session. Never committed, never pushed.
+reference/
