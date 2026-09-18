@@ -41,16 +41,17 @@ class EnumAgent(BaseAgent):
         # re-deriver cette information depuis la liste plate tool_results.
         candidate_urls: list[str] = []
         base_urls: list[str] = []
+        cookie = state.target.session_cookie
 
         for port, is_ssl in self._http_ports(state):
             scheme = "https" if is_ssl else "http"
             base_url = f"{scheme}://{host}:{port}"
             base_urls.append(base_url)
 
-            gob_result = await self.gobuster.run(target=base_url)
+            gob_result = await self.gobuster.run(target=base_url, cookie=cookie)
             state.tool_results.append({"agent": self.name, "tool": "gobuster", "result": gob_result.parsed})
 
-            ffuf_result = await self.ffuf.run(target=base_url)
+            ffuf_result = await self.ffuf.run(target=base_url, cookie=cookie)
             state.tool_results.append({"agent": self.name, "tool": "ffuf", "result": ffuf_result.parsed})
 
             all_paths = gob_result.parsed.get("paths", []) + ffuf_result.parsed.get("paths", [])
@@ -80,7 +81,7 @@ class EnumAgent(BaseAgent):
                     )
                 )
 
-            nikto_result = await self.nikto.run(target=host, port=port, ssl=is_ssl)
+            nikto_result = await self.nikto.run(target=host, port=port, ssl=is_ssl, cookie=cookie)
             state.tool_results.append({"agent": self.name, "tool": "nikto", "result": nikto_result.parsed})
             items = nikto_result.parsed.get("items", [])
             if items:

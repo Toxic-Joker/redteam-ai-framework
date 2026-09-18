@@ -53,6 +53,7 @@ def mission_to_dict(mission: MissionState) -> dict[str, Any]:
             "services": mission.target.services,
             "os_guess": mission.target.os_guess,
             "os_confidence": mission.target.os_confidence,
+            "session_cookie": mission.target.session_cookie,
         },
         "status": mission.status,
         "current_agent": mission.current_agent,
@@ -106,6 +107,7 @@ def mission_from_dict(data: dict[str, Any]) -> MissionState:
         services={int(k): v for k, v in target_data.get("services", {}).items()},
         os_guess=target_data.get("os_guess"),
         os_confidence=target_data.get("os_confidence"),
+        session_cookie=target_data.get("session_cookie"),
     )
     mission = MissionState(
         mission_id=data["mission_id"],

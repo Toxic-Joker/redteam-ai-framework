@@ -31,13 +31,20 @@ class GobusterTool(BaseTool):
     binary = "gobuster"
 
     def build_command(
-        self, target: str, wordlist: Optional[str] = None, extensions: str = "", **kwargs: Any
+        self,
+        target: str,
+        wordlist: Optional[str] = None,
+        extensions: str = "",
+        cookie: Optional[str] = None,
+        **kwargs: Any,
     ) -> list[str]:
         binary = self.binary_path()
         wl = resolve_wordlist(wordlist)
         args = [binary, "dir", "-u", target, "-w", wl, "-q", "-n", "-o", "-"]
         if extensions:
             args += ["-x", extensions]
+        if cookie:
+            args += ["-c", cookie]
         return args
 
     def parse_output(self, result: ToolResult) -> dict[str, Any]:

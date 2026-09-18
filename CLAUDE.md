@@ -187,7 +187,7 @@ redteam-framework/
 
 **`MissionState`** (source unique de vérité, un objet par mission) :
 - Identité : `mission_id`, `mission_name`, `operator`, `authorization_ref` (obligatoire si `REQUIRE_AUTHORIZATION=true`).
-- Cible : `target` (host, ports, services, os).
+- Cible : `target` (host, ports, services, os, `session_cookie` optionnel fourni par l'operateur pour les pages protegees par authentification - jamais devine ni automatise par le framework, jamais expose en clair dans une reponse API ou un rapport).
 - Cycle de vie : `status`, `current_agent`, `last_decision`, `completed_phases` (liste), `orchestration_cycles` (compteur).
 - Résultats confirmés : `findings` (liste de `Finding`), append-only, dédoublonné par `MissionState.add_finding` sur (titre, composant affecté, sévérité) normalisés — un même outil (nikto, gobuster, ...) peut resignaler la même chose deux fois dans une mission.
 - Hypothèses non confirmées : `leads` (liste de `Lead`), append-only, dédoublonné par `add_lead` sur (titre, source), jamais utilisées dans le calcul du risque.

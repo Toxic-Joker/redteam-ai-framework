@@ -12,11 +12,16 @@ class FfufTool(BaseTool):
     name = "ffuf"
     binary = "ffuf"
 
-    def build_command(self, target: str, wordlist: Optional[str] = None, **kwargs: Any) -> list[str]:
+    def build_command(
+        self, target: str, wordlist: Optional[str] = None, cookie: Optional[str] = None, **kwargs: Any
+    ) -> list[str]:
         binary = self.binary_path()
         wl = resolve_wordlist(wordlist)
         url = target.rstrip("/") + "/FUZZ"
-        return [binary, "-u", url, "-w", wl, "-of", "json", "-o", "-", "-s"]
+        args = [binary, "-u", url, "-w", wl, "-of", "json", "-o", "-", "-s"]
+        if cookie:
+            args += ["-b", cookie]
+        return args
 
     def parse_output(self, result: ToolResult) -> dict[str, Any]:
         paths: list[dict[str, Any]] = []
