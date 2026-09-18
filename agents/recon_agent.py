@@ -165,6 +165,11 @@ class ReconAgent(BaseAgent):
             )
         state.last_decision = llm_summary.get("next_phase_suggestion")
 
+        summary = llm_summary.get("summary") or (
+            f"{len(open_ports)} port(s) ouvert(s) detecte(s)." if open_ports
+            else "Aucun port ouvert detecte."
+        )
+
         state.completed_phases.append(self.name)
-        state.attack_chain.append({"phase": self.name, "summary": llm_summary.get("summary", "")})
+        state.attack_chain.append({"phase": self.name, "summary": summary})
         return state
