@@ -6,7 +6,7 @@ Ce document est lu automatiquement par Claude Code comme contexte de projet. Il 
 
 - Reconstruction Docker-first d'un framework d'orchestration Red Team multi-agents déjà conçu, corrigé et validé une première fois. Cette fois, toutes les corrections de la v1 sont intégrées dès le premier commit, pas ajoutées en cours de route.
 - Principe non négociable : le LLM est **consultatif**, toute décision critique (sévérité, risque, structure du rapport) est **déterministe**, ancrée sur la preuve des outils.
-- Modèle par défaut : `qwen3.5:9b` (voir section 3), choisi pour son meilleur équilibre fiabilité d'appel d'outils / taille, avec `qwen3:8b` en repli éprouvé.
+- Modèle par défaut : `qwen3.5:9b` (voir section 3), choisi pour son meilleur équilibre fiabilité d'appel d'outils / taille, avec `qwen3:8b` en repli éprouvé. Sur une machine à ~8 Go de RAM totale, préférer `qwen3.5:4b` (une seule variable d'environnement, validé en déploiement réel, voir section 3 et `docs/HISTORY.md` section 6).
 - Budget de taille cible : 8 à 10 Go en configuration par défaut, plafond de sécurité à 25 Go.
 - Aucune cible vulnérable embarquée dans `docker-compose.yml`. La cible est toujours externe, saisie dans l'interface web.
 
@@ -58,16 +58,19 @@ Chaque ligne correspond à un incident réel documenté dans `docs/HISTORY.md`, 
 
 Point important trouvé en recherchant : les benchmarks généraux de "qualité/intelligence" ne prédisent pas la fiabilité d'appel d'outils. Sur une évaluation dédiée spécifiquement à l'appel d'outils, `gpt-oss-20b` obtient un score d'intelligence générale supérieur à Qwen3 et tourne plus vite, mais son taux de succès sur l'appel d'outils structuré est plus bas (environ 85 %) que celui de la famille Qwen3/Qwen3.5 (95 % et plus) à une taille équivalente ou inférieure. Autrement dit : plus "intelligent" en général ne veut pas dire plus fiable pour ce que ce projet lui demande de faire. Ce n'est donc pas le meilleur choix ici malgré les apparences.
 
-| Modèle | Taille (Ollama) | Fiabilité appel d'outils | Remarque |
-|---|---|---|---|
-| `llama3.2:3b` (v1, à remplacer) | ~2.0 Go | Faible, JSON souvent malformé | Ne pas réutiliser |
-| `qwen3:4b` | 2.5 Go | Très bon pour sa taille (~95 %) | Option la plus légère si la RAM est très limitée |
-| **`qwen3.5:9b`** (défaut recommandé) | ~5 à 6 Go (à confirmer au premier `pull`) | Génération la plus récente de la famille ; `qwen3.5:4b` seul dépasse déjà `qwen3:8b` sur un benchmark dédié à l'appel d'outils | Meilleur compromis fiabilité/taille disponible actuellement à une taille proche de `qwen3:8b` |
-| `qwen3:8b` (repli éprouvé) | 5.2 Go | ~95 %, très largement éprouvé | À utiliser si `qwen3.5` pose un souci de compatibilité de gabarit de chat sur une version d'Ollama donnée |
-| `nemotron-nano:4b` (repli léger) | ~4.2 Go | ~95 % | Alternative si les deux modèles ci-dessus posent un problème sur une machine précise |
-| `gpt-oss-20b` (non retenu) | ~13 Go | ~85 % sur l'appel d'outils, malgré un meilleur score de raisonnement général | Plus rapide et "plus intelligent" au sens général, mais moins fiable spécifiquement sur l'appel d'outils structuré. Écarté pour ce projet malgré des apparences favorables |
+| Modèle | Taille (Ollama) | RAM estimée (inférence) | Fiabilité appel d'outils | Remarque |
+|---|---|---|---|---|
+| `llama3.2:3b` (v1, à remplacer) | ~2.0 Go | ~2.5-3 Go | Faible, JSON souvent malformé | Ne pas réutiliser |
+| `qwen3:4b` | 2.5 Go | ~3-3.5 Go | Très bon pour sa taille (~95 %) | Option la plus légère si la RAM est très limitée |
+| **`qwen3.5:4b`** | 3.4 Go (confirmé sur `ollama.com/library`) | ~4-4.5 Go (estimation : poids + recouvrement contexte/cache KV) | Dépasse déjà `qwen3:8b` sur un benchmark dédié à l'appel d'outils, malgré sa taille | **Recommandé sur une machine à ~8 Go de RAM totale.** Validé en déploiement réel (Parrot OS, voir `docs/HISTORY.md` section 6) : meilleure fiabilité que `qwen3:8b` pour moins de la moitié de sa RAM. |
+| **`qwen3.5:9b`** (défaut du dépôt) | 6.6 Go (confirmé) | ~7-8 Go (confirmé en déploiement réel : Ollama a rapporté ~7.4 Go de RAM totale disponible, quasi entièrement occupés sur une machine à 8 Go) | Génération la plus récente de la famille, meilleure fiabilité absolue de la table | Réserver aux machines avec au moins 12-16 Go de RAM. Sur une machine à 8 Go, préférer `qwen3.5:4b` : peu de marge sinon pour le reste de la pile (framework, outils, OS). |
+| `qwen3:8b` (repli éprouvé) | 5.2 Go | ~6-7 Go | ~95 %, très largement éprouvé | À utiliser si `qwen3.5` pose un souci de compatibilité de gabarit de chat sur une version d'Ollama donnée |
+| `nemotron-nano:4b` (repli léger) | ~4.2 Go | ~5 Go | ~95 % | Alternative si les deux modèles ci-dessus posent un problème sur une machine précise |
+| `gpt-oss-20b` (non retenu) | ~13 Go | ~14-16 Go | ~85 % sur l'appel d'outils, malgré un meilleur score de raisonnement général | Plus rapide et "plus intelligent" au sens général, mais moins fiable specifiquement sur l'appel d'outils structuré, et RAM disproportionnée. Écarté pour ce projet malgré des apparences favorables |
 
-Décision : **`qwen3.5:9b` par défaut**, `qwen3:8b` en une seule variable d'environnement à changer si besoin (aucune modification de code). Licence Apache 2.0 dans les deux cas.
+RAM estimée = poids du modèle quantifié + recouvrement pour le contexte/cache KV (~15-30 % à la longueur de contexte par défaut de ce projet, 4096 tokens). Les valeurs marquées "confirmé" viennent d'une verification directe (taille du modèle sur `ollama.com/library`, ou logs Ollama en déploiement réel) ; les autres sont des estimations par extrapolation, à confirmer au premier `pull` sur la machine cible.
+
+Décision : `qwen3.5:9b` reste la référence par défaut du dépôt (meilleure fiabilité absolue) pour les machines avec assez de RAM. Sur une machine à ~8 Go de RAM totale, basculer vers `qwen3.5:4b` via `OLLAMA_MODEL_MAIN` (une seule variable d'environnement, aucun changement de code) — c'est la configuration validée en déploiement réel. `qwen3:8b` reste le repli de compatibilité si `qwen3.5` pose un souci de gabarit de chat. Licence Apache 2.0 dans tous les cas.
 
 Point d'implémentation à respecter : utiliser les variantes **instruct / non-thinking** de ces modèles pour la boucle d'agents, pas les variantes "raisonnement" (`thinking mode`, DeepSeek-R1-Distill, QwQ, etc.). Un modèle qui "réfléchit" avant d'appeler un outil ajoute de la latence sans forcément améliorer la fiabilité de la sortie structurée, et ce n'est pas ce que cette architecture attend du LLM (il est déjà cantonné à un rôle consultatif, pas besoin de chaîne de raisonnement longue).
 
@@ -292,6 +295,8 @@ Profils additionnels en fichiers séparés (pas dans le compose principal, pour 
 
 Marge confortable sous le plafond de sécurité de 25 Go, même en configuration haute. 25 Go n'est pas une cible, c'est un plafond à ne jamais dépasser.
 
+**Ce tableau mesure l'espace disque, pas la RAM.** Les deux budgets sont différents et la RAM s'est révélée la contrainte la plus bloquante en déploiement réel sur une machine à 8 Go (voir section 3 pour l'estimation de RAM par modèle, et `docs/HISTORY.md` section 6). Un disque large sous le plafond n'implique pas que le modèle par défaut tienne confortablement en RAM sur toute machine.
+
 ---
 
 ## 9. Variables d'environnement (source unique de vérité)
@@ -299,7 +304,7 @@ Marge confortable sous le plafond de sécurité de 25 Go, même en configuration
 | Variable | Défaut | Rôle |
 |---|---|---|
 | `OLLAMA_BASE_URL` | `http://ollama:11434` | Point d'accès au LLM. Seul endroit où l'URL est définie. |
-| `OLLAMA_MODEL_MAIN` | `qwen3.5:9b` | Modèle utilisé par tous les agents. Repli possible : `qwen3:8b`, sans changement de code. |
+| `OLLAMA_MODEL_MAIN` | `qwen3.5:9b` | Modèle utilisé par tous les agents. Sur une machine à ~8 Go de RAM, basculer sur `qwen3.5:4b` ; repli de compatibilité : `qwen3:8b`. Sans changement de code dans tous les cas. Voir section 3 pour le choix selon la RAM disponible. |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Modèle d'embeddings pour ChromaDB. |
 | `REQUIRE_AUTHORIZATION` | `true` | Bloque toute mission sans `authorization_ref`. |
 | `NMAP_SCAN_MODE` | `syn` | `syn` (`-sS`, défaut si root) ou `connect` (`-sT`, repli réseaux filtrés/non-root). |
@@ -332,6 +337,6 @@ Marge confortable sous le plafond de sécurité de 25 Go, même en configuration
 
 ## 12. À décider avant de lancer la reconstruction
 
-- Vérifier au premier `pull` que `qwen3.5:9b` fonctionne correctement avec la version d'Ollama installée (gabarit de chat, appel d'outils). En cas de souci, basculer sur `qwen3:8b` via `OLLAMA_MODEL_MAIN`, sans changement de code.
+- Vérifier au premier `pull` que `qwen3.5:9b` fonctionne correctement avec la version d'Ollama installée (gabarit de chat, appel d'outils). En cas de souci, basculer sur `qwen3:8b` via `OLLAMA_MODEL_MAIN`, sans changement de code. **Mis à jour** : premier déploiement réel effectué (Parrot OS, 8 Go de RAM) — le gabarit/appel d'outils a fonctionné, mais la RAM disponible s'est révélée la contrainte réelle plutôt que la compatibilité ; bascule vers `qwen3.5:4b` sur ce profil de machine. Détail dans `docs/HISTORY.md`, section 6.
 - Choisir le modèle d'embeddings définitif (`nomic-embed-text` pour la qualité, `all-minilm` pour le poids minimal).
 - Décider si les tests de la section 11 doivent tourner en CI (GitHub Actions) dès le MVP ou seulement en local dans un premier temps.
