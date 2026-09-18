@@ -24,6 +24,8 @@ ARG FFUF_VERSION=v2.1.0
 ARG NIKTO_VERSION=2.5.0
 ARG SQLMAP_VERSION=1.8.11
 ARG NUCLEI_VERSION=v3.11.1
+ARG DALFOX_VERSION=v3.2.3
+ARG COMMIX_VERSION=v4.1
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -114,6 +116,31 @@ RUN set -eux; \
     chmod +x /usr/local/bin/nuclei; \
     rm -f /tmp/nuclei.zip; \
     nuclei -update-templates -silent || true
+
+# dalfox : binaire de release GitHub multi-arch. Nommage encore different des
+# trois autres outils bases sur des binaires Go de ce Dockerfile (gobuster,
+# ffuf, nuclei) - verifie individuellement via l'API GitHub, jamais suppose :
+# "dalfox-vX.Y.Z-linux-x86_64.tar.gz" (le "v" du tag est conserve dans le nom
+# de fichier ici) et "aarch64" plutot que "arm64" pour la variante ARM.
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+        amd64) DALFOX_ARCH=x86_64 ;; \
+        arm64) DALFOX_ARCH=aarch64 ;; \
+        *) echo "architecture non supportee: ${TARGETARCH}" && exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/dalfox.tar.gz \
+        "https://github.com/hahwul/dalfox/releases/download/${DALFOX_VERSION}/dalfox-${DALFOX_VERSION}-linux-${DALFOX_ARCH}.tar.gz"; \
+    tar -xzf /tmp/dalfox.tar.gz -C /tmp dalfox; \
+    install -m 0755 /tmp/dalfox /usr/local/bin/dalfox; \
+    rm -f /tmp/dalfox.tar.gz /tmp/dalfox
+
+# commix : meme probleme que nikto/sqlmap (pas de paquet apt fiable), meme
+# correction - clone GitHub + wrapper shell. Reprend directement l'architecture
+# de sqlmap (memes auteurs de convention CLI), confirme via son propre code
+# source avant ecriture plutot que suppose par analogie.
+RUN git clone --branch "${COMMIX_VERSION}" --depth 1 https://github.com/commixproject/commix.git /opt/commix \
+    && printf '#!/bin/sh\nexec python3 /opt/commix/commix.py "$@"\n' > /usr/local/bin/commix \
+    && chmod +x /usr/local/bin/commix
 
 # Wordlist verifiee a l'execution par tools/gobuster_tool.py::resolve_wordlist.
 RUN mkdir -p /usr/share/seclists/Discovery/Web-Content \

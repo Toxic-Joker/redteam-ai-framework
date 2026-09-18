@@ -254,7 +254,7 @@ def test_exploit_agent_falls_back_to_tool_results_without_scratch():
 
 
 class _StubSqlmap:
-    def __init__(self, vulnerable_urls: set[str]) -> None:
+    def __init__(self, vulnerable_urls: set[str] = frozenset()) -> None:
         self._vulnerable_urls = vulnerable_urls
         self.calls: list[dict] = []
 
@@ -264,6 +264,35 @@ class _StubSqlmap:
         return ToolResult(
             tool="sqlmap", command=[], returncode=0, stdout="", stderr="", success=True,
             parsed={"vulnerable": vulnerable, "injection_points": ["Parameter: id (GET)"] if vulnerable else []},
+        )
+
+
+class _StubDalfox:
+    def __init__(self, vulnerable_urls: set[str] = frozenset()) -> None:
+        self._vulnerable_urls = vulnerable_urls
+        self.calls: list[dict] = []
+
+    async def run(self, url, cookie=None, **kwargs) -> ToolResult:
+        self.calls.append({"url": url, "cookie": cookie})
+        vulnerable = url in self._vulnerable_urls
+        findings = [{"type": "reflected", "param": "q", "payload": "<script>"}] if vulnerable else []
+        return ToolResult(
+            tool="dalfox", command=[], returncode=0, stdout="", stderr="", success=True,
+            parsed={"vulnerable": vulnerable, "findings": findings},
+        )
+
+
+class _StubCommix:
+    def __init__(self, vulnerable_urls: set[str] = frozenset()) -> None:
+        self._vulnerable_urls = vulnerable_urls
+        self.calls: list[dict] = []
+
+    async def run(self, url, cookie=None, data=None, **kwargs) -> ToolResult:
+        self.calls.append({"url": url, "cookie": cookie, "data": data})
+        vulnerable = url in self._vulnerable_urls
+        return ToolResult(
+            tool="commix", command=[], returncode=0, stdout="", stderr="", success=True,
+            parsed={"vulnerable": vulnerable, "injection_points": ["'cmd' is vulnerable"] if vulnerable else []},
         )
 
 
@@ -277,6 +306,8 @@ async def test_exploit_agent_tests_post_forms_discovered_by_crawler():
 
     agent.ask_llm = fake_ask_llm
     agent.sqlmap = _StubSqlmap(vulnerable_urls={"http://10.0.0.1:80/login.php"})
+    agent.dalfox = _StubDalfox()
+    agent.commix = _StubCommix()
 
     mission = MissionState(
         mission_id="m7", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
@@ -296,3 +327,32 @@ async def test_exploit_agent_tests_post_forms_discovered_by_crawler():
     assert len(result.findings) == 1
     assert result.findings[0].exploited is True
     assert result.findings[0].severity.name == "CRITICAL"
+
+
+@pytest.mark.asyncio
+async def test_exploit_agent_tests_all_three_vectors_per_candidate_url():
+    agent = ExploitAgent.__new__(ExploitAgent)
+    agent.name = "exploit"
+
+    async def fake_ask_llm(*args, **kwargs):
+        return {"summary": "", "suggested_leads": []}
+
+    agent.ask_llm = fake_ask_llm
+    url = "http://10.0.0.1:80/?q=1"
+    agent.sqlmap = _StubSqlmap(vulnerable_urls={url})
+    agent.dalfox = _StubDalfox(vulnerable_urls={url})
+    agent.commix = _StubCommix(vulnerable_urls={url})
+
+    mission = MissionState(
+        mission_id="m8", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+    mission.target.services = {80: "http"}
+    mission.scratch["enum"] = {"candidate_urls": [url], "base_urls": [], "post_forms": []}
+
+    result = await agent.run(mission)
+
+    titles = {f.title for f in result.findings}
+    assert f"Injection SQL confirmee sur {url}" in titles
+    assert f"XSS confirmee sur {url}" in titles
+    assert f"Injection de commandes confirmee sur {url}" in titles
+    assert all(f.exploited and f.severity.name == "CRITICAL" for f in result.findings)
