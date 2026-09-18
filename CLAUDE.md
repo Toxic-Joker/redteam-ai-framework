@@ -55,6 +55,7 @@ Chaque ligne correspond à un incident réel documenté dans `docs/HISTORY.md`, 
 - [ ] Toute bibliothèque synchrone/bloquante appelée depuis un agent (ex. `dnspython`) doit passer par `asyncio.to_thread`, jamais un appel direct dans une coroutine — un appel bloquant y gèle toute la boucle asyncio, donc l'API et le dashboard entiers, pas seulement la mission en cours.
 - [ ] L'extraction JSON d'une réponse LLM doit tolérer les cloisons markdown, les caractères de contrôle littéraux (`json.loads(..., strict=False)`), le texte parasite avant/après l'objet et les virgules traînantes — un modèle local plus modeste produit ce genre d'imperfections en pratique, pas seulement du JSON invalide pur et simple.
 - [ ] Passer un `recursion_limit` explicite à LangGraph en plus du compteur `orchestration_cycles` — ne jamais dépendre implicitement de la limite par défaut de la bibliothèque (non documentée, sujette à changer).
+- [ ] Ne jamais deviner un nom de flag CLI par analogie avec un autre outil du même Dockerfile (`-Header` existe chez d'autres scanners, pas chez `nikto` 2.5.0 — vérifié dans son `GetOptions` réel). Un flag invalide peut faire échouer l'outil en silence : `nikto` retombe dans son écran d'aide et sort avec un code 0 (`exit $is_failure` non défini, numifié à 0 en Perl), donc perçu comme un succès — aucune erreur nulle part, un texte d'aide confondu avec un vrai finding (`docs/HISTORY.md`, section 17). Lire le parseur d'arguments réel de l'outil, pas seulement son format de sortie (cf. règle dalfox ci-dessus).
 
 ---
 

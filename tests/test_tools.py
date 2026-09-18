@@ -125,12 +125,38 @@ def test_nikto_build_command_includes_ssl_flag_when_requested(monkeypatch):
     assert "10.0.0.1" in args
 
 
-def test_nikto_includes_cookie_header_when_provided(monkeypatch):
+def test_nikto_includes_static_cookie_option_when_provided(monkeypatch):
+    # nikto 2.5.0 n'a pas d'option -Header (verifie dans son GetOptions reel) ;
+    # un -Header invalide fait tomber nikto dans usage() en sortant avec un code
+    # 0, ce qui masque silencieusement l'echec du scan (incident documente).
     tool = NiktoTool()
     monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/nikto")
     args = tool.build_command(target="10.0.0.1", port=80, cookie="PHPSESSID=abc; security=low")
-    assert "-Header" in args
-    assert "Cookie: PHPSESSID=abc; security=low" in args
+    assert "-Header" not in args
+    assert "-Option" in args
+    assert 'STATIC-COOKIE="PHPSESSID=abc";"security=low"' in args
+
+
+def test_nikto_omits_option_flag_when_cookie_absent(monkeypatch):
+    tool = NiktoTool()
+    monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/nikto")
+    args = tool.build_command(target="10.0.0.1", port=80)
+    assert "-Option" not in args
+
+
+def test_nikto_parse_output_ignores_usage_screen_legend_line():
+    tool = NiktoTool()
+    result = ToolResult(
+        tool="nikto",
+        command=["nikto"],
+        stdout="+ Target IP: 10.0.0.1\n+ requires a value\n+ /admin/: Admin login page found.\n",
+        stderr="",
+        returncode=0,
+        success=True,
+    )
+    parsed = tool.parse_output(result)
+    assert "requires a value" not in parsed["items"]
+    assert "/admin/: Admin login page found." in parsed["items"]
 
 
 def test_sqlmap_build_command_is_batch_by_default(monkeypatch):
