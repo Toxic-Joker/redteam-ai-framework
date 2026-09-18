@@ -101,7 +101,7 @@ Le modèle tourne dans un conteneur Ollama séparé, jamais dans l'image du fram
      Recon       Enum     Exploit   Postexploit   Rapport
         |          |         |         |           |
         +----------+---------+---------+-----------+
-                    | (outils : nmap, gobuster, nikto, sqlmap, ffuf)
+                    | (outils : nmap, gobuster, nikto, sqlmap, ffuf, crawler HTML)
                     v
               MissionState (SQLite)
               + mémoire sémantique (ChromaDB, embeddings via Ollama)
@@ -118,7 +118,7 @@ Composants (repris du projet précédent, corrections de la section 2 intégrée
 
 - **`core/`** : `state.py` (MissionState, Finding, Lead, enums, fonctions déterministes), `orchestrator.py` (graphe LangGraph, garde-fous anti-boucle dès le départ), `memory.py` (SQLite + ChromaDB), `config.py` (Pydantic Settings, une seule source de vérité par variable).
 - **`agents/`** : `base_agent.py`, `recon_agent.py`, `enum_agent.py`, `exploit_agent.py`, `postexploit_agent.py`, `report_agent.py`. Tous les agents qui créent des findings appellent la fonction de plafonnement de `core/state.py`, jamais une réimplémentation locale.
-- **`tools/`** : `base.py`, `nmap_tool.py` (`-Pn` systématique), `gobuster_tool.py`, `nikto_tool.py`, `sqlmap_tool.py`, `ffuf_tool.py`.
+- **`tools/`** : `base.py`, `nmap_tool.py` (`-Pn` systématique), `gobuster_tool.py`, `nikto_tool.py`, `sqlmap_tool.py`, `ffuf_tool.py`, `crawler_tool.py` (client HTTP asynchrone pur, n'hérite pas de `BaseTool` : pas de binaire externe ni de sous-processus).
 - **`api/`** : routes REST (missions, reports, agents), WebSocket temps réel, `GET /health` (connectivité Ollama — sans lui, un backend LLM injoignable degrade silencieusement chaque `ask_llm` en `{}` sans aucun signal visible).
 - **`templates/`** : `dashboard.html`, `report.html` (section "Pistes à vérifier" dès le premier gabarit).
 

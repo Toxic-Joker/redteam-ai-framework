@@ -6,6 +6,7 @@ chemins en 401/403 produisent un seul finding LOW, jamais 22).
 from __future__ import annotations
 
 from core.state import Finding, Lead, MissionState, Severity, cap_severity, consolidate_denied_paths
+from tools.crawler_tool import CrawlerTool
 from tools.ffuf_tool import FfufTool
 from tools.gobuster_tool import GobusterTool
 from tools.nikto_tool import NiktoTool
@@ -23,6 +24,7 @@ class EnumAgent(BaseAgent):
         self.gobuster = GobusterTool()
         self.nikto = NiktoTool()
         self.ffuf = FfufTool()
+        self.crawler = CrawlerTool()
 
     def _http_ports(self, state: MissionState) -> list[tuple[int, bool]]:
         ports = []
@@ -40,6 +42,7 @@ class EnumAgent(BaseAgent):
         # state.scratch pour que l'agent d'exploitation n'ait pas besoin de
         # re-deriver cette information depuis la liste plate tool_results.
         candidate_urls: list[str] = []
+        post_forms: list[dict] = []
         base_urls: list[str] = []
         cookie = state.target.session_cookie
 
@@ -103,6 +106,28 @@ class EnumAgent(BaseAgent):
                     )
                 )
 
+            # Un crawler trouve de vraies pages avec parametres (ex.
+            # /vulnerabilities/sqli/?id=1 apres connexion) qu'aucune
+            # wordlist ne devinera jamais - gobuster/ffuf ne connaissent que
+            # des segments de chemin, jamais les parametres qu'une page
+            # attend reellement. Les formulaires GET sont synthetises en
+            # URL avec parametres (reutilisent le meme pipeline) ; les
+            # formulaires POST sont gardes a part pour sqlmap --data.
+            crawl_result = await self.crawler.crawl(base_url, cookie=cookie)
+            state.tool_results.append(
+                {
+                    "agent": self.name,
+                    "tool": "crawler",
+                    "result": {
+                        "pages_visited": len(crawl_result.visited),
+                        "urls_with_params": crawl_result.urls_with_params,
+                        "post_forms": crawl_result.post_forms,
+                    },
+                }
+            )
+            candidate_urls.extend(crawl_result.urls_with_params)
+            post_forms.extend(crawl_result.post_forms)
+
         llm_summary = await self.ask_llm(
             system_prompt=(
                 "Tu es un assistant d'enumeration web en test d'intrusion autorise. "
@@ -128,7 +153,7 @@ class EnumAgent(BaseAgent):
             )
         state.last_decision = llm_summary.get("next_phase_suggestion")
 
-        state.scratch["enum"] = {"candidate_urls": candidate_urls, "base_urls": base_urls}
+        state.scratch["enum"] = {"candidate_urls": candidate_urls, "base_urls": base_urls, "post_forms": post_forms}
 
         state.completed_phases.append(self.name)
         state.attack_chain.append({"phase": self.name, "summary": llm_summary.get("summary", "")})

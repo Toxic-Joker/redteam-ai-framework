@@ -109,6 +109,18 @@ class _StubEnumTool:
         return ToolResult(tool="stub", command=[], returncode=0, stdout="", stderr="", success=True, parsed=self._parsed)
 
 
+class _StubCrawler:
+    def __init__(self, urls_with_params=None, post_forms=None) -> None:
+        from tools.crawler_tool import CrawlResult
+
+        self._result = CrawlResult(
+            urls_with_params=urls_with_params or [], post_forms=post_forms or [], visited=["http://stub/"]
+        )
+
+    async def crawl(self, base_url, **kwargs):
+        return self._result
+
+
 @pytest.mark.asyncio
 async def test_enum_agent_populates_scratch_with_query_bearing_urls():
     agent = EnumAgent.__new__(EnumAgent)
@@ -121,6 +133,7 @@ async def test_enum_agent_populates_scratch_with_query_bearing_urls():
     agent.gobuster = _StubEnumTool({"paths": [{"path": "/search?q=1", "status_code": 200}]})
     agent.ffuf = _StubEnumTool({"paths": []})
     agent.nikto = _StubEnumTool({"items": []})
+    agent.crawler = _StubCrawler()
 
     mission = MissionState(
         mission_id="m4", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
@@ -131,6 +144,37 @@ async def test_enum_agent_populates_scratch_with_query_bearing_urls():
 
     assert result.scratch["enum"]["candidate_urls"] == ["http://10.0.0.1:80/search?q=1"]
     assert result.scratch["enum"]["base_urls"] == ["http://10.0.0.1:80"]
+    assert result.scratch["enum"]["post_forms"] == []
+
+
+@pytest.mark.asyncio
+async def test_enum_agent_merges_crawler_urls_and_post_forms_into_scratch():
+    agent = EnumAgent.__new__(EnumAgent)
+    agent.name = "enum"
+
+    async def fake_ask_llm(*args, **kwargs):
+        return {"summary": "", "suggested_leads": []}
+
+    agent.ask_llm = fake_ask_llm
+    agent.gobuster = _StubEnumTool({"paths": []})
+    agent.ffuf = _StubEnumTool({"paths": []})
+    agent.nikto = _StubEnumTool({"items": []})
+    agent.crawler = _StubCrawler(
+        urls_with_params=["http://10.0.0.1:80/vulnerabilities/sqli/?id=1"],
+        post_forms=[{"url": "http://10.0.0.1:80/login.php", "data": "username=1&password=1"}],
+    )
+
+    mission = MissionState(
+        mission_id="m4b", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+    mission.target.services = {80: "http"}
+
+    result = await agent.run(mission)
+
+    assert "http://10.0.0.1:80/vulnerabilities/sqli/?id=1" in result.scratch["enum"]["candidate_urls"]
+    assert result.scratch["enum"]["post_forms"] == [
+        {"url": "http://10.0.0.1:80/login.php", "data": "username=1&password=1"}
+    ]
 
 
 def test_exploit_agent_prefers_scratch_urls_over_tool_results():
@@ -160,3 +204,48 @@ def test_exploit_agent_falls_back_to_tool_results_without_scratch():
     urls = agent._candidate_urls(mission)
 
     assert urls == ["/other?x=1"]
+
+
+class _StubSqlmap:
+    def __init__(self, vulnerable_urls: set[str]) -> None:
+        self._vulnerable_urls = vulnerable_urls
+        self.calls: list[dict] = []
+
+    async def run(self, url, cookie=None, data=None, **kwargs) -> ToolResult:
+        self.calls.append({"url": url, "cookie": cookie, "data": data})
+        vulnerable = url in self._vulnerable_urls
+        return ToolResult(
+            tool="sqlmap", command=[], returncode=0, stdout="", stderr="", success=True,
+            parsed={"vulnerable": vulnerable, "injection_points": ["Parameter: id (GET)"] if vulnerable else []},
+        )
+
+
+@pytest.mark.asyncio
+async def test_exploit_agent_tests_post_forms_discovered_by_crawler():
+    agent = ExploitAgent.__new__(ExploitAgent)
+    agent.name = "exploit"
+
+    async def fake_ask_llm(*args, **kwargs):
+        return {"summary": "", "suggested_leads": []}
+
+    agent.ask_llm = fake_ask_llm
+    agent.sqlmap = _StubSqlmap(vulnerable_urls={"http://10.0.0.1:80/login.php"})
+
+    mission = MissionState(
+        mission_id="m7", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+    mission.target.services = {}  # aucun port http a boucler : seul le chemin post_forms est teste ici
+    mission.scratch["enum"] = {
+        "candidate_urls": [],
+        "base_urls": [],
+        "post_forms": [{"url": "http://10.0.0.1:80/login.php", "data": "username=1&password=1"}],
+    }
+
+    result = await agent.run(mission)
+
+    assert agent.sqlmap.calls == [
+        {"url": "http://10.0.0.1:80/login.php", "cookie": None, "data": "username=1&password=1"}
+    ]
+    assert len(result.findings) == 1
+    assert result.findings[0].exploited is True
+    assert result.findings[0].severity.name == "CRITICAL"
