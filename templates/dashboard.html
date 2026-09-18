@@ -1,99 +1,758 @@
-{% extends "base.html" %}
-{% block content %}
-<div x-data="missionDashboard()" x-init="init()">
-    <section>
-        <h2>Nouvelle mission</h2>
-        <form @submit.prevent="createMission">
-            <div><input x-model="form.mission_name" placeholder="Nom de mission" required></div>
-            <div><input x-model="form.operator" placeholder="Operateur" required></div>
-            <div><input x-model="form.target_host" placeholder="Cible (host, toujours externe)" required></div>
-            <div><input x-model="form.authorization_ref" placeholder="Reference d'autorisation" required></div>
-            <button type="submit">Lancer la mission</button>
-        </form>
-    </section>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RedTeam AI // Command Center</title>
 
-    <section>
-        <h2>Missions</h2>
-        <table>
-            <thead>
-                <tr><th>Nom</th><th>Cible</th><th>Statut</th><th>Phase</th><th>Risque</th><th>Actions</th></tr>
-            </thead>
-            <tbody>
-                <template x-for="m in missions" :key="m.mission_id">
-                    <tr>
-                        <td x-text="m.mission_name"></td>
-                        <td x-text="m.target.host"></td>
-                        <td x-text="m.status"></td>
-                        <td x-text="m.current_agent"></td>
-                        <td><span class="badge" :class="m.overall_risk" x-text="m.overall_risk"></span></td>
-                        <td>
-                            <a :href="'/api/reports/' + m.mission_id + '/download'" x-show="m.status === 'completed'">Telecharger</a>
-                            <a href="#" @click.prevent="abortMission(m.mission_id)" x-show="m.status === 'running'">Interrompre</a>
-                            <a href="#" @click.prevent="deleteMission(m.mission_id)" x-show="m.status !== 'running'">Supprimer</a>
-                        </td>
-                    </tr>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+
+<script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js"></script>
+<script src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js" defer></script>
+
+<style>
+:root {
+  --black:     #020408;
+  --deep:      #080e14;
+  --surface:   #0d1620;
+  --panel:     #111c28;
+  --border:    #1a2d40;
+  --border-hi: #1e4060;
+
+  --green:     #00ff88;
+  --green-dim: #00cc6a;
+  --green-lo:  #005533;
+
+  --cyan:      #00e5ff;
+  --cyan-dim:  #00b8cc;
+  --red:       #ff3a5c;
+  --orange:    #ff8c42;
+  --yellow:    #ffd23f;
+  --blue:      #4d9fff;
+
+  --text:      #c8e0f0;
+  --text-dim:  #5a7a96;
+  --text-lo:   #2a4a64;
+
+  --mono:      'Share Tech Mono', monospace;
+  --display:   'Orbitron', sans-serif;
+
+  --radius:    4px;
+  --glow-green: 0 0 20px rgba(0,255,136,0.3), 0 0 40px rgba(0,255,136,0.1);
+  --glow-red:   0 0 20px rgba(255,58,92,0.4);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--black);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--deep); }
+::-webkit-scrollbar-thumb { background: var(--green-lo); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--green); }
+
+.app { display: flex; flex-direction: column; min-height: 100vh; }
+
+header {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(2,4,8,0.95);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  height: 52px;
+}
+.logo {
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: 16px;
+  letter-spacing: 3px;
+  color: var(--green);
+  text-shadow: var(--glow-green);
+  text-decoration: none;
+}
+.logo span { color: var(--text-dim); font-weight: 400; font-size: 11px; margin-left: 12px; letter-spacing: 1px; }
+.header-right { display: flex; align-items: center; gap: 20px; }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green), 0 0 16px rgba(0,255,136,0.4);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.85); } }
+.status-dot.offline { background: var(--red); box-shadow: var(--glow-red); animation: none; }
+.sys-time { color: var(--text-dim); font-size: 12px; }
+
+.main {
+  display: grid;
+  grid-template-columns: 280px 1fr 320px;
+  grid-template-rows: auto 1fr;
+  gap: 1px;
+  flex: 1;
+  background: var(--border);
+}
+.sidebar-left  { background: var(--deep); grid-row: 1 / 3; overflow-y: auto; }
+.center-top    { background: var(--deep); padding: 20px 24px; }
+.center-main   { background: var(--deep); overflow-y: auto; padding: 20px 24px; }
+.sidebar-right { background: var(--deep); grid-row: 1 / 3; overflow-y: auto; }
+
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.panel + .panel { margin-top: 1px; }
+.panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; background: rgba(0,255,136,0.03); border-bottom: 1px solid var(--border);
+}
+.panel-title { font-family: var(--display); font-size: 10px; font-weight: 700; letter-spacing: 2px; color: var(--green); text-transform: uppercase; }
+.panel-body { padding: 14px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; font-family: var(--mono); font-size: 12px;
+  border: 1px solid; border-radius: var(--radius); cursor: pointer;
+  transition: all 0.15s ease; letter-spacing: 0.5px; text-decoration: none; white-space: nowrap;
+}
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-primary { background: rgba(0,255,136,0.1); border-color: var(--green); color: var(--green); }
+.btn-primary:hover:not(:disabled) { background: rgba(0,255,136,0.2); box-shadow: var(--glow-green); }
+.btn-danger { background: rgba(255,58,92,0.1); border-color: var(--red); color: var(--red); }
+.btn-danger:hover:not(:disabled) { background: rgba(255,58,92,0.2); box-shadow: var(--glow-red); }
+.btn-ghost { background: transparent; border-color: var(--border-hi); color: var(--text-dim); }
+.btn-ghost:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+.btn-sm { padding: 4px 10px; font-size: 11px; }
+
+.form-group { margin-bottom: 14px; }
+.form-label { display: block; font-size: 10px; letter-spacing: 1.5px; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px; }
+.form-input {
+  width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); font-family: var(--mono); font-size: 13px; padding: 8px 12px; outline: none;
+  transition: border-color 0.15s;
+}
+.form-input:focus { border-color: var(--green); box-shadow: 0 0 0 2px rgba(0,255,136,0.1); }
+.form-input::placeholder { color: var(--text-lo); }
+
+.badge {
+  display: inline-flex; align-items: center; padding: 2px 8px;
+  font-family: var(--display); font-size: 9px; font-weight: 700; letter-spacing: 1.5px;
+  border-radius: 2px; text-transform: uppercase;
+}
+.badge-critical { background: rgba(255,58,92,0.15);  color: var(--red);    border: 1px solid rgba(255,58,92,0.4); }
+.badge-high     { background: rgba(255,140,66,0.15); color: var(--orange); border: 1px solid rgba(255,140,66,0.4); }
+.badge-medium   { background: rgba(255,210,63,0.15); color: var(--yellow); border: 1px solid rgba(255,210,63,0.4); }
+.badge-low      { background: rgba(0,229,255,0.1);   color: var(--cyan);   border: 1px solid rgba(0,229,255,0.3); }
+.badge-info     { background: rgba(77,159,255,0.1);  color: var(--blue);   border: 1px solid rgba(77,159,255,0.3); }
+.badge-running    { background: rgba(0,255,136,0.1);   color: var(--green);    border: 1px solid var(--green-lo); animation: blink 1.5s step-end infinite; }
+.badge-completed  { background: rgba(0,229,255,0.1);   color: var(--cyan);     border: 1px solid rgba(0,229,255,0.3); }
+.badge-failed     { background: rgba(255,58,92,0.1);   color: var(--red);      border: 1px solid rgba(255,58,92,0.3); }
+.badge-aborted    { background: rgba(255,140,66,0.1);  color: var(--orange);   border: 1px solid rgba(255,140,66,0.3); }
+@keyframes blink { 50% { opacity: 0.5; } }
+
+.sidebar-header { padding: 16px 14px 10px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--deep); z-index: 10; }
+.sidebar-header .sh-title { font-family: var(--display); font-size: 10px; font-weight: 700; letter-spacing: 2px; color: var(--text-dim); text-transform: uppercase; margin-bottom: 8px; }
+
+.mission-item { padding: 10px 14px; border-bottom: 1px solid rgba(26,45,64,0.6); cursor: pointer; transition: background 0.1s; }
+.mission-item:hover { background: rgba(0,255,136,0.03); }
+.mission-item.active { background: rgba(0,255,136,0.06); border-left: 2px solid var(--green); }
+.mission-item .m-name { font-weight: 500; color: var(--text); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
+.mission-item .m-meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.mission-item .m-host { color: var(--text-dim); font-size: 11px; }
+
+.empty-state { padding: 32px 14px; text-align: center; color: var(--text-lo); font-size: 12px; }
+
+.stats-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 16px; }
+.stat-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; text-align: center; }
+.stat-card .s-count { font-family: var(--display); font-size: 24px; font-weight: 900; line-height: 1; margin-bottom: 4px; }
+.stat-card .s-label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); }
+.s-critical .s-count { color: var(--red); }
+.s-high     .s-count { color: var(--orange); }
+.s-medium   .s-count { color: var(--yellow); }
+.s-low      .s-count { color: var(--cyan); }
+.s-info     .s-count { color: var(--blue); }
+
+.mission-info-bar {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 10px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px;
+}
+.info-chip { display: flex; align-items: center; gap: 6px; }
+.info-chip .ic-label { color: var(--text-lo); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+.info-chip .ic-val   { color: var(--text); font-size: 12px; }
+.action-bar { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+.phase-track { display: flex; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 16px; }
+.phase-step {
+  flex: 1; padding: 7px 4px; text-align: center; font-family: var(--display); font-size: 9px; font-weight: 700;
+  letter-spacing: 1px; text-transform: uppercase; color: var(--text-lo); border-right: 1px solid var(--border);
+  transition: all 0.3s; position: relative;
+}
+.phase-step:last-child { border-right: none; }
+.phase-step.active { background: rgba(0,255,136,0.08); color: var(--green); }
+.phase-step.done { color: var(--green-dim); }
+
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.tab { padding: 8px 16px; font-size: 12px; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; user-select: none; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--green); border-bottom-color: var(--green); }
+
+.finding-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
+.finding-card.sev-critical { border-left: 3px solid var(--red); }
+.finding-card.sev-high     { border-left: 3px solid var(--orange); }
+.finding-card.sev-medium   { border-left: 3px solid var(--yellow); }
+.finding-card.sev-low      { border-left: 3px solid var(--cyan); }
+.finding-card.sev-info     { border-left: 3px solid var(--blue); }
+.finding-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; }
+.finding-title { flex: 1; font-size: 13px; color: var(--text); }
+.finding-chevron { color: var(--text-lo); font-size: 10px; transition: transform 0.2s; }
+.finding-chevron.open { transform: rotate(90deg); }
+.finding-body { padding: 0 14px 12px; border-top: 1px solid var(--border); }
+.finding-field { margin-top: 10px; }
+.finding-field-label { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-lo); margin-bottom: 4px; }
+.finding-field-val { font-size: 12px; color: var(--text-dim); }
+.finding-evidence {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 8px 10px; font-size: 11px; color: var(--cyan-dim); white-space: pre-wrap; word-break: break-all;
+  max-height: 120px; overflow-y: auto;
+}
+.finding-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.finding-tag { padding: 2px 6px; background: rgba(26,45,64,0.8); border: 1px solid var(--border); border-radius: 2px; font-size: 10px; color: var(--text-dim); }
+
+.chain-item { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(26,45,64,0.5); }
+.chain-item:last-child { border-bottom: none; }
+.chain-idx { font-family: var(--display); font-size: 10px; color: var(--text-lo); min-width: 28px; padding-top: 2px; }
+.chain-content { flex: 1; }
+.chain-agent { font-family: var(--display); font-size: 9px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; }
+.agent-recon       { color: var(--blue); }
+.agent-enum        { color: var(--cyan); }
+.agent-exploit     { color: var(--orange); }
+.agent-postexploit { color: var(--red); }
+.agent-report      { color: var(--green); }
+.chain-action { font-size: 12px; color: var(--text); margin-top: 2px; }
+
+.log-container {
+  font-size: 11px; color: var(--text-dim); height: 280px; overflow-y: auto;
+  padding: 10px; background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border);
+}
+.log-line { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+.log-line.log-success { color: var(--green); }
+.log-line.log-warn    { color: var(--yellow); }
+.log-line.log-error   { color: var(--red); }
+.log-line.log-info    { color: var(--cyan-dim); }
+.log-line.log-step    { color: var(--text); }
+.log-line.log-finding { color: var(--orange); }
+.log-line .log-ts     { color: var(--text-lo); margin-right: 6px; }
+
+.placeholder-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 300px; color: var(--text-lo); text-align: center; }
+.placeholder-screen .ph-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.3; }
+.placeholder-screen .ph-text { font-family: var(--display); font-size: 13px; letter-spacing: 2px; margin-bottom: 8px; color: var(--text-dim); }
+.placeholder-screen .ph-sub  { font-size: 12px; color: var(--text-lo); }
+
+.spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--green); border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.tag-list { display: flex; flex-wrap: wrap; gap: 4px; }
+
+@media (max-width: 900px) {
+  .main { grid-template-columns: 1fr; grid-template-rows: auto auto auto auto; }
+  .sidebar-left, .sidebar-right { grid-row: auto; }
+}
+</style>
+</head>
+
+<body x-data="dashboard()" x-init="init()">
+<div class="app">
+
+<header>
+  <a class="logo" href="#">REDTEAM//AI <span>COMMAND CENTER</span></a>
+  <div class="header-right">
+    <span class="sys-time" x-text="clock"></span>
+    <div class="status-dot" :class="{'offline': !wsConnected}" :title="wsConnected ? 'WebSocket connecte' : 'WebSocket hors ligne (repli sur le polling)'"></div>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- LEFT : mission list -->
+  <aside class="sidebar-left">
+    <div class="sidebar-header">
+      <div class="sh-title">MISSIONS</div>
+      <input class="form-input" style="font-size:11px;padding:6px 10px;" placeholder="Filtrer..." x-model="missionFilter">
+    </div>
+
+    <template x-if="missions.length === 0">
+      <div class="empty-state">
+        <div style="font-size:24px;margin-bottom:8px;opacity:0.3;">&#11043;</div>
+        <div>Aucune mission</div>
+        <div style="margin-top:4px;font-size:11px;">Creer une mission dans le panneau de droite</div>
+      </div>
+    </template>
+
+    <template x-for="m in filteredMissions" :key="m.mission_id">
+      <div class="mission-item" :class="{active: selectedMission?.mission_id === m.mission_id}" @click="selectMission(m.mission_id)">
+        <div class="m-name" x-text="m.mission_name"></div>
+        <div class="m-meta">
+          <span class="m-host" x-text="m.target"></span>
+          <span :class="'badge badge-' + (m.status || 'running')" x-text="m.status"></span>
+        </div>
+      </div>
+    </template>
+  </aside>
+
+  <!-- CENTER TOP : info bar + phase track + stats -->
+  <div class="center-top">
+    <template x-if="!selectedMission">
+      <div style="color:var(--text-lo);font-size:12px;">&larr; Selectionner une mission, ou en creer une a droite</div>
+    </template>
+    <template x-if="selectedMission">
+      <div>
+        <div class="mission-info-bar">
+          <div class="info-chip"><span class="ic-label">ID</span><span class="ic-val" x-text="selectedMission.mission_id.substring(0,8)"></span></div>
+          <div class="info-chip"><span class="ic-label">Cible</span><span class="ic-val" x-text="selectedMission.target?.host || '-'"></span></div>
+          <div class="info-chip"><span class="ic-label">Risque</span><span :class="'badge badge-' + (selectedMission.overall_risk||'info').toLowerCase()" x-text="selectedMission.overall_risk"></span></div>
+          <div class="info-chip"><span class="ic-label">Duree</span><span class="ic-val" x-text="formatDuration(selectedMission.created_at, selectedMission.status === 'running' ? null : selectedMission.updated_at)"></span></div>
+          <div class="action-bar">
+            <template x-if="isRunning">
+              <button class="btn btn-danger btn-sm" @click="abortMission()">&#9632; INTERROMPRE</button>
+            </template>
+            <template x-if="selectedMission.status === 'completed'">
+              <a class="btn btn-ghost btn-sm" :href="'/api/reports/' + selectedMission.mission_id + '/download'">&#8595; RAPPORT</a>
+            </template>
+            <template x-if="!isRunning">
+              <button class="btn btn-danger btn-sm" @click="deleteMission()" title="Supprimer">&#10005;</button>
+            </template>
+          </div>
+        </div>
+
+        <div class="phase-track">
+          <template x-for="phase in phases" :key="phase.key">
+            <div class="phase-step" :class="phaseState(phase.key)" x-text="phase.label"></div>
+          </template>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat-card s-critical"><div class="s-count" x-text="severityCount('CRITICAL')"></div><div class="s-label">CRITICAL</div></div>
+          <div class="stat-card s-high"><div class="s-count" x-text="severityCount('HIGH')"></div><div class="s-label">HIGH</div></div>
+          <div class="stat-card s-medium"><div class="s-count" x-text="severityCount('MEDIUM')"></div><div class="s-label">MEDIUM</div></div>
+          <div class="stat-card s-low"><div class="s-count" x-text="severityCount('LOW')"></div><div class="s-label">LOW</div></div>
+          <div class="stat-card s-info"><div class="s-count" x-text="severityCount('INFO')"></div><div class="s-label">INFO</div></div>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- CENTER MAIN : tabs -->
+  <div class="center-main">
+    <template x-if="!selectedMission">
+      <div class="placeholder-screen">
+        <div class="ph-icon">&#11043;</div>
+        <div class="ph-text">AUCUNE MISSION SELECTIONNEE</div>
+        <div class="ph-sub">Selectionner une mission a gauche<br>ou en creer une nouvelle a droite</div>
+      </div>
+    </template>
+
+    <template x-if="selectedMission">
+      <div>
+        <div class="tabs">
+          <div class="tab" :class="{active: activeTab==='findings'}" @click="activeTab='findings'">FINDINGS (<span x-text="(selectedMission.findings||[]).length"></span>)</div>
+          <div class="tab" :class="{active: activeTab==='leads'}" @click="activeTab='leads'">PISTES (<span x-text="(selectedMission.leads||[]).length"></span>)</div>
+          <div class="tab" :class="{active: activeTab==='chain'}" @click="activeTab='chain'">CHAINE D'ATTAQUE (<span x-text="(selectedMission.attack_chain||[]).length"></span>)</div>
+          <div class="tab" :class="{active: activeTab==='info'}" @click="activeTab='info'">INFO</div>
+        </div>
+
+        <!-- FINDINGS -->
+        <div x-show="activeTab==='findings'">
+          <template x-if="(selectedMission.findings||[]).length === 0">
+            <div class="placeholder-screen" style="min-height:200px;">
+              <div class="ph-text">AUCUN FINDING</div>
+              <div class="ph-sub">Les findings confirmes apparaitront ici en temps reel</div>
+            </div>
+          </template>
+          <template x-for="f in (selectedMission.findings||[])" :key="f.id">
+            <div class="finding-card" :class="'sev-' + f.severity.toLowerCase()">
+              <div class="finding-head" @click="toggleFinding(f.id)">
+                <span :class="'badge badge-' + f.severity.toLowerCase()" x-text="f.severity"></span>
+                <span class="finding-title" x-text="f.title"></span>
+                <span class="finding-chevron" :class="{open: openFindings.includes(f.id)}">&#9656;</span>
+              </div>
+              <div class="finding-body" x-show="openFindings.includes(f.id)">
+                <div class="finding-field"><div class="finding-field-label">Composant affecte</div><div class="finding-field-val" x-text="f.affected_component"></div></div>
+                <div class="finding-field"><div class="finding-field-label">Description</div><div class="finding-field-val" style="white-space:pre-wrap;" x-text="f.description"></div></div>
+                <template x-if="f.evidence">
+                  <div class="finding-field"><div class="finding-field-label">Preuve</div><div class="finding-evidence" x-text="f.evidence"></div></div>
                 </template>
-            </tbody>
-        </table>
-    </section>
+                <div class="finding-tags">
+                  <span class="finding-tag" x-text="'decouvert par : ' + f.discovered_by"></span>
+                  <span class="finding-tag" x-show="f.exploited" style="color:var(--red);">exploite</span>
+                  <template x-for="tag in (f.tags||[])" :key="tag"><span class="finding-tag" x-text="tag"></span></template>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- LEADS -->
+        <div x-show="activeTab==='leads'">
+          <template x-if="(selectedMission.leads||[]).length === 0">
+            <div class="placeholder-screen" style="min-height:200px;">
+              <div class="ph-text">AUCUNE PISTE</div>
+              <div class="ph-sub">Hypotheses non confirmees proposees par le LLM - n'entrent jamais dans le calcul du risque</div>
+            </div>
+          </template>
+          <template x-for="l in (selectedMission.leads||[])" :key="l.id">
+            <div class="finding-card">
+              <div class="finding-body" style="padding-top:12px;border-top:none;">
+                <div class="finding-title" x-text="l.title" style="margin-bottom:6px;"></div>
+                <div class="finding-field-val" x-text="l.rationale"></div>
+                <div class="finding-tags">
+                  <span class="finding-tag" x-text="'source : ' + l.source"></span>
+                  <span class="finding-tag" x-text="'confiance : ' + Math.round(l.confidence*100) + '%'"></span>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- ATTACK CHAIN -->
+        <div x-show="activeTab==='chain'">
+          <template x-if="(selectedMission.attack_chain||[]).length === 0">
+            <div class="placeholder-screen" style="min-height:200px;">
+              <div class="ph-text">CHAINE VIDE</div>
+              <div class="ph-sub">Les etapes apparaitront ici phase par phase</div>
+            </div>
+          </template>
+          <div class="chain-item" x-show="isRunning" style="padding:8px 0 12px;">
+            <div class="chain-idx">...</div>
+            <div class="chain-content">
+              <span class="spinner"></span>
+              <span style="color:var(--green-dim);margin-left:8px;font-size:11px;" x-text="'Agent actif : ' + (selectedMission.current_agent || 'orchestrateur')"></span>
+            </div>
+          </div>
+          <template x-for="(step, idx) in (selectedMission.attack_chain||[])" :key="idx">
+            <div class="chain-item">
+              <div class="chain-idx" x-text="String(idx+1).padStart(2,'0')"></div>
+              <div class="chain-content">
+                <span :class="'chain-agent agent-' + step.phase" x-text="(step.phase||'').toUpperCase()"></span>
+                <div class="chain-action" x-text="step.summary || step.action || ''"></div>
+                <div class="finding-tags" x-show="step.target">
+                  <span class="finding-tag" x-text="step.target"></span>
+                  <span class="finding-tag" x-show="step.result" x-text="step.result"></span>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- INFO -->
+        <div x-show="activeTab==='info'">
+          <div class="panel">
+            <div class="panel-header"><span class="panel-title">CIBLE</span></div>
+            <div class="panel-body">
+              <div class="form-group"><div class="form-label">Host</div><div style="color:var(--text);font-size:13px;" x-text="selectedMission.target?.host || '-'"></div></div>
+              <div class="form-group">
+                <div class="form-label">Ports ouverts</div>
+                <div class="tag-list">
+                  <template x-for="p in (selectedMission.target?.ports || [])" :key="p"><span class="finding-tag" x-text="p"></span></template>
+                  <template x-if="!selectedMission.target?.ports?.length"><span style="color:var(--text-lo);font-size:12px;">Aucun port scanne</span></template>
+                </div>
+              </div>
+              <div class="form-group"><div class="form-label">OS (haute confiance uniquement)</div><div style="color:var(--text);font-size:13px;" x-text="selectedMission.target?.os_guess || 'Inconnu'"></div></div>
+            </div>
+          </div>
+          <div class="panel" style="margin-top:8px;">
+            <div class="panel-header"><span class="panel-title">MISSION</span></div>
+            <div class="panel-body">
+              <div class="form-group"><div class="form-label">ID</div><div style="color:var(--text);font-size:12px;" x-text="selectedMission.mission_id"></div></div>
+              <div class="form-group"><div class="form-label">Operateur</div><div style="color:var(--text);font-size:13px;" x-text="selectedMission.operator"></div></div>
+              <div class="form-group"><div class="form-label">Autorisation</div><div style="color:var(--text);font-size:13px;" x-text="selectedMission.authorization_ref"></div></div>
+              <div class="form-group"><div class="form-label">Cycles d'orchestration</div><div style="color:var(--text);font-size:12px;" x-text="selectedMission.orchestration_cycles"></div></div>
+              <div class="form-group"><div class="form-label">Erreurs</div><div style="color:var(--red);font-size:13px;" x-text="(selectedMission.errors||[]).length"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- RIGHT : live feed + new mission -->
+  <aside class="sidebar-right">
+    <div style="padding:14px;">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">LIVE FEED</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span x-show="wsConnected" style="font-size:10px;color:var(--green);">&#9679; CONNECTE</span>
+            <span x-show="!wsConnected" style="font-size:10px;color:var(--text-lo);">&#9675; POLLING</span>
+            <button class="btn btn-ghost btn-sm" @click="logs=[]" style="padding:2px 6px;font-size:10px;">CLR</button>
+          </div>
+        </div>
+        <div class="panel-body" style="padding:8px;">
+          <div class="log-container" x-ref="logContainer">
+            <template x-if="logs.length === 0">
+              <div style="color:var(--text-lo);font-size:11px;text-align:center;padding:20px 0;">En attente d'activite...</div>
+            </template>
+            <template x-for="(line, i) in logs" :key="i">
+              <div class="log-line" :class="line.cls"><span class="log-ts" x-text="line.ts"></span><span x-text="line.msg"></span></div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:0 14px 14px;">
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">NOUVELLE MISSION</span></div>
+        <div class="panel-body">
+          <div class="form-group"><label class="form-label">Nom</label><input class="form-input" x-model="newMission.mission_name" placeholder="Lab-001"></div>
+          <div class="form-group"><label class="form-label">Cible (host, toujours externe)</label><input class="form-input" x-model="newMission.target_host" placeholder="192.168.1.100"></div>
+          <div class="form-group"><label class="form-label">Operateur</label><input class="form-input" x-model="newMission.operator" placeholder="operateur"></div>
+          <div class="form-group"><label class="form-label">Reference d'autorisation</label><input class="form-input" x-model="newMission.authorization_ref" placeholder="AUTH-2026-001"></div>
+          <button class="btn btn-primary" style="width:100%;justify-content:center;" @click="createMission()" :disabled="creating">
+            <span x-show="creating" class="spinner"></span>
+            <span x-text="creating ? 'LANCEMENT...' : '+ LANCER LA MISSION'"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+</div>
 </div>
 
 <script>
-function missionDashboard() {
-    return {
-        form: { mission_name: '', operator: '', target_host: '', authorization_ref: '' },
-        missions: [],
-        async init() {
-            await this.refresh();
-            setInterval(() => this.refresh(), 5000);
-            try {
-                const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-                const ws = new WebSocket(proto + '://' + window.location.host + '/ws/missions');
-                ws.onmessage = () => this.refresh();
-            } catch (e) {
-                // WebSocket optionnel : le polling toutes les 5s suffit en repli.
-            }
-        },
-        async refresh() {
-            const list = await (await fetch('/api/missions')).json();
-            this.missions = await Promise.all(
-                list.map(m => fetch('/api/missions/' + m.mission_id).then(r => r.json()))
-            );
-        },
-        async createMission() {
-            const res = await fetch('/api/missions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(this.form),
-            });
-            if (res.ok) {
-                this.form = { mission_name: '', operator: '', target_host: '', authorization_ref: '' };
-                await this.refresh();
-            } else {
-                const err = await res.json();
-                alert(err.detail || 'Erreur lors de la creation de la mission');
-            }
-        },
-        async abortMission(missionId) {
-            const res = await fetch('/api/missions/' + missionId + '/abort', { method: 'POST' });
-            if (res.ok) {
-                await this.refresh();
-            } else {
-                const err = await res.json();
-                alert(err.detail || "Erreur lors de l'interruption de la mission");
-            }
-        },
-        async deleteMission(missionId) {
-            if (!confirm('Supprimer cette mission et son rapport ?')) return;
-            const res = await fetch('/api/missions/' + missionId, { method: 'DELETE' });
-            if (res.ok) {
-                await this.refresh();
-            } else {
-                const err = await res.json();
-                alert(err.detail || 'Erreur lors de la suppression de la mission');
-            }
-        },
-    };
+const API = '/api';
+
+function dashboard() {
+  return {
+    clock: '',
+    wsConnected: false,
+    ws: null,
+    wsReconnectTimer: null,
+
+    missions: [],
+    missionFilter: '',
+    selectedMission: null,
+    activeTab: 'findings',
+    openFindings: [],
+    logs: [],
+    creating: false,
+    _lastSeen: {},
+
+    newMission: { mission_name: '', target_host: '', operator: 'operator', authorization_ref: '' },
+
+    phases: [
+      { key: 'recon',       label: 'RECON'   },
+      { key: 'enum',        label: 'ENUM'    },
+      { key: 'exploit',     label: 'EXPLOIT' },
+      { key: 'postexploit', label: 'POSTEX'  },
+      { key: 'report',      label: 'REPORT'  },
+    ],
+
+    async init() {
+      this.tickClock();
+      setInterval(() => this.tickClock(), 1000);
+      await this.loadMissions();
+      setInterval(() => this.loadMissions(), 5000);
+      this.connectWs();
+    },
+
+    tickClock() {
+      this.clock = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+    },
+
+    get isRunning() {
+      return !!this.selectedMission && this.selectedMission.status === 'running';
+    },
+
+    get filteredMissions() {
+      const q = this.missionFilter.toLowerCase();
+      return this.missions.filter(m =>
+        !q || m.mission_name.toLowerCase().includes(q) || (m.target || '').toLowerCase().includes(q)
+      );
+    },
+
+    async loadMissions() {
+      try {
+        const r = await fetch(`${API}/missions`);
+        if (!r.ok) return;
+        this.missions = await r.json();
+        if (this.selectedMission) await this.refreshSelected();
+      } catch (e) { /* le prochain cycle de polling reessaiera */ }
+    },
+
+    _snapshotCounts(m) {
+      return {
+        completed_phases: (m.completed_phases || []).length,
+        findings: (m.findings || []).length,
+        leads: (m.leads || []).length,
+        errors: (m.errors || []).length,
+        status: m.status,
+      };
+    },
+
+    async selectMission(id) {
+      this.activeTab = 'findings';
+      this.openFindings = [];
+      this.logs = [];
+      try {
+        const r = await fetch(`${API}/missions/${id}`);
+        if (!r.ok) return;
+        this.selectedMission = await r.json();
+        this._lastSeen = this._snapshotCounts(this.selectedMission);
+        this.addLog('info', `Mission selectionnee : ${this.selectedMission.mission_name}`);
+      } catch (e) {
+        this.addLog('error', 'Erreur de chargement : ' + e.message);
+      }
+    },
+
+    async refreshSelected() {
+      if (!this.selectedMission) return;
+      try {
+        const r = await fetch(`${API}/missions/${this.selectedMission.mission_id}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        this._diffAndLog(data);
+        this.selectedMission = data;
+      } catch (e) { /* silencieux : prochain cycle */ }
+    },
+
+    _diffAndLog(data) {
+      const prev = this._lastSeen || {};
+      const cur = this._snapshotCounts(data);
+
+      if (cur.completed_phases > (prev.completed_phases || 0)) {
+        const justDone = (data.completed_phases || [])[cur.completed_phases - 1];
+        this.addLog('step', `[${(justDone || '').toUpperCase()}] Phase terminee`);
+      }
+      if (cur.findings > (prev.findings || 0)) {
+        (data.findings || []).slice(prev.findings || 0).forEach(f => this.addLog('finding', `[${f.severity}] ${f.title}`));
+      }
+      if (cur.leads > (prev.leads || 0)) {
+        this.addLog('info', `+${cur.leads - (prev.leads || 0)} piste(s) proposee(s)`);
+      }
+      if (cur.errors > (prev.errors || 0)) {
+        (data.errors || []).slice(prev.errors || 0).forEach(e => this.addLog('error', `[${e.agent}] ${e.message}`));
+      }
+      if (cur.status !== prev.status) {
+        if (cur.status === 'completed') this.addLog('success', 'Mission terminee');
+        else if (cur.status === 'failed') this.addLog('error', 'Mission en echec');
+        else if (cur.status === 'aborted') this.addLog('warn', 'Mission interrompue');
+      }
+      this._lastSeen = cur;
+    },
+
+    async createMission() {
+      if (!this.newMission.mission_name || !this.newMission.target_host || !this.newMission.authorization_ref) {
+        this.addLog('error', "Nom, cible et reference d'autorisation sont requis.");
+        return;
+      }
+      this.creating = true;
+      try {
+        const r = await fetch(`${API}/missions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.newMission),
+        });
+        if (!r.ok) {
+          const err = await r.json();
+          this.addLog('error', `Erreur creation : ${err.detail}`);
+          return;
+        }
+        const mission = await r.json();
+        this.addLog('success', `Mission creee et lancee : ${mission.mission_id.substring(0,8)}`);
+        this.newMission = { mission_name: '', target_host: '', operator: this.newMission.operator, authorization_ref: '' };
+        await this.loadMissions();
+        await this.selectMission(mission.mission_id);
+      } catch (e) {
+        this.addLog('error', `Erreur reseau : ${e.message}`);
+      } finally {
+        this.creating = false;
+      }
+    },
+
+    async abortMission() {
+      if (!this.selectedMission) return;
+      try {
+        const r = await fetch(`${API}/missions/${this.selectedMission.mission_id}/abort`, { method: 'POST' });
+        if (!r.ok) { const err = await r.json(); this.addLog('error', err.detail); return; }
+        this.addLog('warn', 'Interruption demandee...');
+        await this.refreshSelected();
+      } catch (e) { this.addLog('error', e.message); }
+    },
+
+    async deleteMission() {
+      if (!this.selectedMission) return;
+      if (!confirm(`Supprimer la mission "${this.selectedMission.mission_name}" ?`)) return;
+      try {
+        const r = await fetch(`${API}/missions/${this.selectedMission.mission_id}`, { method: 'DELETE' });
+        if (!r.ok) { const err = await r.json(); alert(err.detail); return; }
+        this.selectedMission = null;
+        this.logs = [];
+        await this.loadMissions();
+      } catch (e) { alert(e.message); }
+    },
+
+    connectWs() {
+      try {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        this.ws = new WebSocket(`${proto}//${location.host}/ws/missions`);
+        this.ws.onopen = () => { this.wsConnected = true; };
+        this.ws.onclose = () => {
+          this.wsConnected = false;
+          this.wsReconnectTimer = setTimeout(() => this.connectWs(), 3000);
+        };
+        this.ws.onerror = () => { this.wsConnected = false; };
+        this.ws.onmessage = () => {
+          this.loadMissions();
+        };
+      } catch (e) {
+        this.wsConnected = false;
+      }
+    },
+
+    phaseState(key) {
+      if (!this.selectedMission) return '';
+      if ((this.selectedMission.completed_phases || []).includes(key)) return 'done';
+      if (this.selectedMission.current_agent === key && this.isRunning) return 'active';
+      return '';
+    },
+
+    severityCount(sev) {
+      if (!this.selectedMission) return 0;
+      return (this.selectedMission.findings || []).filter(f => f.severity === sev).length;
+    },
+
+    toggleFinding(id) {
+      const i = this.openFindings.indexOf(id);
+      if (i === -1) this.openFindings.push(id);
+      else this.openFindings.splice(i, 1);
+    },
+
+    addLog(type, msg) {
+      const clsMap = { success: 'log-success', warn: 'log-warn', error: 'log-error', info: 'log-info', step: 'log-step', finding: 'log-finding' };
+      const ts = new Date().toISOString().substring(11, 19);
+      this.logs.push({ ts, msg, cls: clsMap[type] || 'log-info' });
+      if (this.logs.length > 200) this.logs.shift();
+      this.$nextTick(() => {
+        const el = this.$refs.logContainer;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+
+    formatDuration(startIso, endIso) {
+      if (!startIso) return '0s';
+      const start = new Date(startIso).getTime();
+      const end = endIso ? new Date(endIso).getTime() : Date.now();
+      const secs = Math.max(0, Math.round((end - start) / 1000));
+      if (secs < 60) return `${secs}s`;
+      return `${Math.floor(secs / 60)}m${secs % 60}s`;
+    },
+  };
 }
 </script>
-{% endblock %}
+</body>
+</html>

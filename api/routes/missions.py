@@ -155,17 +155,41 @@ def _mission_summary(mission: MissionState) -> dict:
     return {
         "mission_id": mission.mission_id,
         "mission_name": mission.mission_name,
+        "operator": mission.operator,
+        "authorization_ref": mission.authorization_ref,
         "status": mission.status,
         "current_agent": mission.current_agent,
         "completed_phases": mission.completed_phases,
         "orchestration_cycles": mission.orchestration_cycles,
-        "target": {"host": mission.target.host, "ports": mission.target.ports},
+        "target": {
+            "host": mission.target.host,
+            "ports": mission.target.ports,
+            "services": mission.target.services,
+            "os_guess": mission.target.os_guess,
+            "os_confidence": mission.target.os_confidence,
+        },
         "findings": [
-            {"title": f.title, "severity": f.severity.name, "affected_component": f.affected_component}
+            {
+                "id": f.id,
+                "title": f.title,
+                "severity": f.severity.name,
+                "description": f.description,
+                "affected_component": f.affected_component,
+                "evidence": f.evidence,
+                "discovered_by": f.discovered_by,
+                "exploited": f.exploited,
+                "tags": f.tags,
+            }
             for f in mission.findings
         ],
-        "leads": [{"title": l.title, "confidence": l.confidence} for l in mission.leads],
+        "leads": [
+            {"id": l.id, "title": l.title, "rationale": l.rationale, "confidence": l.confidence, "source": l.source}
+            for l in mission.leads
+        ],
+        "attack_chain": mission.attack_chain,
         "overall_risk": compute_overall_risk(mission.findings).name,
         "report_path": mission.report_path,
+        "created_at": mission.created_at,
+        "updated_at": mission.updated_at,
         "errors": mission.errors,
     }
