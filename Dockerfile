@@ -59,7 +59,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ('gobuster', jamais 'gobuster3' - incident #6, aucun symlink de compatibilite).
 RUN set -eux; \
     case "${TARGETARCH:-amd64}" in \
-        amd64) GB_ARCH=amd64 ;; \
+        amd64) GB_ARCH=x86_64 ;; \
         arm64) GB_ARCH=arm64 ;; \
         *) echo "architecture non supportee: ${TARGETARCH}" && exit 1 ;; \
     esac; \
