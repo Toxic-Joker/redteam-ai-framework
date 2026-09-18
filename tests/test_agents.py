@@ -365,6 +365,39 @@ async def test_exploit_agent_tests_all_three_vectors_per_candidate_url():
 
 
 @pytest.mark.asyncio
+async def test_exploit_agent_tests_absolute_candidate_url_once_with_multiple_http_ports():
+    """Regression directe : une mission reelle a deux ports HTTP (8000, 8080)
+
+    faisait tester chaque URL candidate deja complete une fois par port au
+    lieu d'une fois au total (candidates deja absolues, donc independantes
+    du port en cours) - visible dans la chaine d'attaque comme deux entrees
+    dalfox identiques pour la meme URL exploitee.
+    """
+    agent = ExploitAgent.__new__(ExploitAgent)
+    agent.name = "exploit"
+    agent._settings = SimpleNamespace(exploit_max_concurrent_urls=5)
+
+    async def fake_ask_llm(*args, **kwargs):
+        return {"summary": "", "suggested_leads": []}
+
+    agent.ask_llm = fake_ask_llm
+    url = "http://10.0.0.1:8080/vulnerabilities/xss_r/?name=1"
+    agent.sqlmap = _StubSqlmap()
+    agent.dalfox = _StubDalfox(vulnerable_urls={url})
+    agent.commix = _StubCommix()
+
+    mission = MissionState(
+        mission_id="m10", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+    mission.target.services = {8000: "http-alt", 8080: "http"}
+    mission.scratch["enum"] = {"candidate_urls": [url], "base_urls": [], "post_forms": []}
+
+    await agent.run(mission)
+
+    assert agent.dalfox.calls == [{"url": url, "cookie": None}]
+
+
+@pytest.mark.asyncio
 async def test_exploit_agent_records_reflected_xss_as_lead_not_finding():
     """Regression directe : dalfox "Reflected" (type R) n'est jamais une
 
