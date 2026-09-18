@@ -6,6 +6,7 @@ directe de l'incident #10 (docs/HISTORY.md).
 from core.state import (
     PHASE_ORDER,
     Finding,
+    Lead,
     MissionState,
     Severity,
     Target,
@@ -103,6 +104,54 @@ def test_finding_no_transparency_note_when_not_capped():
         exploited=False,
     )
     assert finding.description == "Description originale."
+
+
+def test_add_finding_deduplicates_same_title_component_and_severity():
+    mission = make_mission()
+    finding_kwargs = dict(
+        severity=Severity.LOW, description="d1", affected_component="/admin", evidence="", discovered_by="enum"
+    )
+    mission.add_finding(Finding(title="Chemins accessibles", **finding_kwargs))
+    mission.add_finding(Finding(title="Chemins accessibles", **{**finding_kwargs, "description": "d2"}))
+    assert len(mission.findings) == 1
+    assert mission.findings[0].description == "d1"  # le premier est garde, pas ecrase
+
+
+def test_add_finding_normalizes_trailing_slash_for_dedup():
+    mission = make_mission()
+    mission.add_finding(
+        Finding(title="X", severity=Severity.LOW, description="", affected_component="/admin/", evidence="", discovered_by="enum")
+    )
+    mission.add_finding(
+        Finding(title="X", severity=Severity.LOW, description="", affected_component="/admin", evidence="", discovered_by="enum")
+    )
+    assert len(mission.findings) == 1
+
+
+def test_add_finding_keeps_distinct_severities_separate():
+    mission = make_mission()
+    mission.add_finding(
+        Finding(title="X", severity=Severity.LOW, description="", affected_component="c", evidence="", discovered_by="enum")
+    )
+    mission.add_finding(
+        Finding(title="X", severity=Severity.MEDIUM, description="", affected_component="c", evidence="", discovered_by="enum")
+    )
+    assert len(mission.findings) == 2
+
+
+def test_add_lead_deduplicates_same_title_and_source():
+    mission = make_mission()
+    mission.add_lead(Lead(title="Verifier X", rationale="r1", source="recon", confidence=0.3))
+    mission.add_lead(Lead(title="Verifier X", rationale="r2", source="recon", confidence=0.5))
+    assert len(mission.leads) == 1
+    assert mission.leads[0].rationale == "r1"
+
+
+def test_add_lead_keeps_same_title_from_different_sources():
+    mission = make_mission()
+    mission.add_lead(Lead(title="Verifier X", rationale="r1", source="recon", confidence=0.3))
+    mission.add_lead(Lead(title="Verifier X", rationale="r2", source="enum", confidence=0.3))
+    assert len(mission.leads) == 2
 
 
 def test_finding_clears_cve_without_exploitation_proof():

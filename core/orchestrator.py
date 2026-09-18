@@ -103,10 +103,15 @@ async def run_mission(
     visible sur le dashboard. core/ reste decouple de api/ : c'est
     l'appelant qui decide quoi faire de chaque etat intermediaire.
     """
+    settings = get_settings()
     graph = build_graph()
     result: GraphState = {"mission": mission}
     is_first_yield = True
-    async for step in graph.astream({"mission": mission}, stream_mode="values"):
+    # Plafond explicite en plus du compteur d'orchestration_cycles :
+    # LangGraph a sa propre limite de recursion par defaut (non documentee,
+    # ~25), mieux vaut ne jamais en dependre implicitement.
+    config = {"recursion_limit": settings.max_cycles * 2 + 2}
+    async for step in graph.astream({"mission": mission}, stream_mode="values", config=config):
         result = step
         if is_first_yield:
             # stream_mode="values" emet d'abord l'etat d'entree tel quel,

@@ -52,6 +52,8 @@ Chaque ligne correspond à un incident réel documenté dans `docs/HISTORY.md`, 
 - [ ] Détection de vulnérabilité `sqlmap` : ne jamais combiner des mots-clés indépendants présents n'importe où dans la sortie (`"parameter" in stdout and "injectable" in stdout`) — `sqlmap` imprime aussi ces deux mots dans ses messages **négatifs** (`"parameter 'id' is NOT injectable"`). Un seul signal positif non ambigu, vérifié ligne par ligne (voir `docs/HISTORY.md`, section 6).
 - [ ] Démarrer une mission avec `asyncio.create_task` (handle conservé pour permettre l'annulation), jamais `BackgroundTasks` de FastAPI qui ne donne aucune prise pour interrompre une mission en cours.
 - [ ] Toute bibliothèque synchrone/bloquante appelée depuis un agent (ex. `dnspython`) doit passer par `asyncio.to_thread`, jamais un appel direct dans une coroutine — un appel bloquant y gèle toute la boucle asyncio, donc l'API et le dashboard entiers, pas seulement la mission en cours.
+- [ ] L'extraction JSON d'une réponse LLM doit tolérer les cloisons markdown, les caractères de contrôle littéraux (`json.loads(..., strict=False)`), le texte parasite avant/après l'objet et les virgules traînantes — un modèle local plus modeste produit ce genre d'imperfections en pratique, pas seulement du JSON invalide pur et simple.
+- [ ] Passer un `recursion_limit` explicite à LangGraph en plus du compteur `orchestration_cycles` — ne jamais dépendre implicitement de la limite par défaut de la bibliothèque (non documentée, sujette à changer).
 
 ---
 
@@ -117,7 +119,7 @@ Composants (repris du projet précédent, corrections de la section 2 intégrée
 - **`core/`** : `state.py` (MissionState, Finding, Lead, enums, fonctions déterministes), `orchestrator.py` (graphe LangGraph, garde-fous anti-boucle dès le départ), `memory.py` (SQLite + ChromaDB), `config.py` (Pydantic Settings, une seule source de vérité par variable).
 - **`agents/`** : `base_agent.py`, `recon_agent.py`, `enum_agent.py`, `exploit_agent.py`, `postexploit_agent.py`, `report_agent.py`. Tous les agents qui créent des findings appellent la fonction de plafonnement de `core/state.py`, jamais une réimplémentation locale.
 - **`tools/`** : `base.py`, `nmap_tool.py` (`-Pn` systématique), `gobuster_tool.py`, `nikto_tool.py`, `sqlmap_tool.py`, `ffuf_tool.py`.
-- **`api/`** : routes REST (missions, reports, agents), WebSocket temps réel.
+- **`api/`** : routes REST (missions, reports, agents), WebSocket temps réel, `GET /health` (connectivité Ollama — sans lui, un backend LLM injoignable degrade silencieusement chaque `ask_llm` en `{}` sans aucun signal visible).
 - **`templates/`** : `dashboard.html`, `report.html` (section "Pistes à vérifier" dès le premier gabarit).
 
 ---
@@ -187,8 +189,8 @@ redteam-framework/
 - Identité : `mission_id`, `mission_name`, `operator`, `authorization_ref` (obligatoire si `REQUIRE_AUTHORIZATION=true`).
 - Cible : `target` (host, ports, services, os).
 - Cycle de vie : `status`, `current_agent`, `last_decision`, `completed_phases` (liste), `orchestration_cycles` (compteur).
-- Résultats confirmés : `findings` (liste de `Finding`), append-only.
-- Hypothèses non confirmées : `leads` (liste de `Lead`), append-only, jamais utilisées dans le calcul du risque.
+- Résultats confirmés : `findings` (liste de `Finding`), append-only, dédoublonné par `MissionState.add_finding` sur (titre, composant affecté, sévérité) normalisés — un même outil (nikto, gobuster, ...) peut resignaler la même chose deux fois dans une mission.
+- Hypothèses non confirmées : `leads` (liste de `Lead`), append-only, dédoublonné par `add_lead` sur (titre, source), jamais utilisées dans le calcul du risque.
 - Journal : `attack_chain`, `tool_results`, `errors`.
 - Contexte partage entre phases : `scratch` (dict par nom d'agent, ex. `scratch["enum"]["candidate_urls"]`) - purement informatif, jamais une source pour une decision de severite/risque.
 - Rapport : `report_path`.
