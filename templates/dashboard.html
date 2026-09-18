@@ -645,8 +645,9 @@ function dashboard() {
       const cur = this._snapshotCounts(data);
 
       if (cur.completed_phases > (prev.completed_phases || 0)) {
-        const justDone = (data.completed_phases || [])[cur.completed_phases - 1];
-        this.addLog('step', `[${(justDone || '').toUpperCase()}] Phase terminee`);
+        (data.completed_phases || []).slice(prev.completed_phases || 0).forEach(phase => {
+          this.addLog('step', `[${(phase || '').toUpperCase()}] Phase terminee`);
+        });
       }
       if (cur.findings > (prev.findings || 0)) {
         (data.findings || []).slice(prev.findings || 0).forEach(f => this.addLog('finding', `[${f.severity}] ${f.title}`));

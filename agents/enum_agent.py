@@ -195,6 +195,12 @@ class EnumAgent(BaseAgent):
 
         state.scratch["enum"] = {"candidate_urls": candidate_urls, "base_urls": base_urls, "post_forms": post_forms}
 
+        phase_findings = [f for f in state.findings if f.discovered_by == self.name]
+        summary = llm_summary.get("summary") or (
+            f"{len(phase_findings)} finding(s) collecte(s) lors de l'enumeration." if phase_findings
+            else "Aucun finding notable collecte lors de l'enumeration."
+        )
+
         state.completed_phases.append(self.name)
-        state.attack_chain.append({"phase": self.name, "summary": llm_summary.get("summary", "")})
+        state.attack_chain.append({"phase": self.name, "summary": summary})
         return state
