@@ -20,12 +20,20 @@ class Settings(BaseSettings):
 
     require_authorization: bool = True
 
+    # CIDR separes par des virgules (ex. "10.0.0.0/8,192.168.0.0/16"). Vide
+    # par defaut = aucune restriction (voir core/state.py::is_target_in_allowed_ranges
+    # pour pourquoi ce n'est pas restreint aux plages privees par defaut).
+    allowed_target_ranges: str = ""
+
     nmap_scan_mode: str = "syn"  # "syn" (-sS) ou "connect" (-sT)
     max_cycles: int = 10
     log_level: str = "INFO"
 
     reports_dir: str = "reports"
     db_dir: str = "db"
+
+    def allowed_target_ranges_list(self) -> list[str]:
+        return [r.strip() for r in self.allowed_target_ranges.split(",") if r.strip()]
 
 
 @lru_cache

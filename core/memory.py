@@ -11,7 +11,7 @@ import os
 from typing import Any, Optional
 
 import httpx
-from sqlalchemy import Column, String, Text, select
+from sqlalchemy import Column, String, Text, delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -91,6 +91,7 @@ def mission_to_dict(mission: MissionState) -> dict[str, Any]:
         "attack_chain": mission.attack_chain,
         "tool_results": mission.tool_results,
         "errors": mission.errors,
+        "scratch": mission.scratch,
         "report_path": mission.report_path,
         "created_at": mission.created_at,
         "updated_at": mission.updated_at,
@@ -150,6 +151,7 @@ def mission_from_dict(data: dict[str, Any]) -> MissionState:
     mission.attack_chain = data.get("attack_chain", [])
     mission.tool_results = data.get("tool_results", [])
     mission.errors = data.get("errors", [])
+    mission.scratch = data.get("scratch", {})
     mission.report_path = data.get("report_path")
     mission.created_at = data.get("created_at", mission.created_at)
     mission.updated_at = data.get("updated_at", mission.updated_at)
@@ -198,6 +200,15 @@ class MissionStore:
             result = await session.execute(select(MissionRow).order_by(MissionRow.updated_at.desc()))
             rows = result.scalars().all()
         return [mission_from_dict(json.loads(r.data)) for r in rows]
+
+    async def delete(self, mission_id: str) -> bool:
+        async with self._session_factory() as session:
+            row = await session.get(MissionRow, mission_id)
+            if row is None:
+                return False
+            await session.execute(delete(MissionRow).where(MissionRow.mission_id == mission_id))
+            await session.commit()
+        return True
 
 
 class OllamaEmbeddingFunction(EmbeddingFunction):

@@ -11,7 +11,7 @@ securite si cette logique est etendue plus tard vers un routage moins rigide.
 """
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import Awaitable, Callable, Optional, TypedDict
 
 from langgraph.graph import END, StateGraph
 
@@ -81,7 +81,28 @@ def build_graph():
     return graph.compile()
 
 
-async def run_mission(mission: MissionState) -> MissionState:
+async def run_mission(
+    mission: MissionState,
+    on_progress: Optional[Callable[[MissionState], Awaitable[None]]] = None,
+) -> MissionState:
+    """Execute la mission de bout en bout.
+
+    Si on_progress est fourni, il est appele avec l'etat courant apres
+    chaque phase (persistance + diffusion WebSocket cote appelant), au lieu
+    d'attendre la toute fin de la mission pour la premiere mise a jour
+    visible sur le dashboard. core/ reste decouple de api/ : c'est
+    l'appelant qui decide quoi faire de chaque etat intermediaire.
+    """
     graph = build_graph()
-    result = await graph.ainvoke({"mission": mission})
+    result: GraphState = {"mission": mission}
+    is_first_yield = True
+    async for step in graph.astream({"mission": mission}, stream_mode="values"):
+        result = step
+        if is_first_yield:
+            # stream_mode="values" emet d'abord l'etat d'entree tel quel,
+            # avant l'execution du premier noeud : rien a diffuser encore.
+            is_first_yield = False
+            continue
+        if on_progress is not None:
+            await on_progress(result["mission"])
     return result["mission"]

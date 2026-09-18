@@ -6,6 +6,8 @@ dans une reponse de modele de langage. Voir PROJECT.md, principe directeur.
 """
 from __future__ import annotations
 
+import ipaddress
+import socket
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -63,7 +65,19 @@ class Finding:
         # au-dela de la discipline attendue des agents (incident #10 : un
         # agent non couvert par le plafonnement a laisse passer un CRITICAL
         # hallucine jusqu'au rapport final).
+        requested_severity = self.severity
         self.severity = cap_severity(self.severity, self.exploited)
+        if self.severity != requested_severity:
+            # Note visible dans le rapport plutot qu'un plafonnement silencieux :
+            # un lecteur doit pouvoir voir qu'une severite plus haute a ete
+            # proposee (par un outil ou le LLM) et ramenee ici faute de preuve
+            # d'exploitation, plutot que de le deviner.
+            self.description = (
+                f"{self.description}\n\n"
+                f"[Note automatique : severite proposee {requested_severity.name}, "
+                f"plafonnee a {self.severity.name} faute de preuve d'exploitation "
+                "confirmee - a verifier manuellement.]"
+            ).strip()
         if self.cve and not self.exploited:
             self.cve = None
 
@@ -110,6 +124,13 @@ class MissionState:
     attack_chain: list[dict] = field(default_factory=list)
     tool_results: list[dict] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
+
+    # Contexte de travail partage entre phases, cle par nom d'agent (ex.
+    # scratch["enum"] = {"candidate_urls": [...]}). Purement informatif : un
+    # agent en aval peut le lire pour eviter de re-deriver ce qu'une phase
+    # precedente a deja etabli, mais aucune decision critique (severite,
+    # risque) ne doit jamais se fonder dessus - seuls findings/leads comptent.
+    scratch: dict[str, dict] = field(default_factory=dict)
 
     report_path: Optional[str] = None
 
@@ -197,3 +218,32 @@ def enforce_progression(state: MissionState, proposed_next_phase: str, max_cycle
         return first_incomplete_phase()
 
     return proposed_next_phase
+
+
+def is_target_in_allowed_ranges(host: str, allowed_ranges: list[str]) -> bool:
+    """Garde-fou de perimetre optionnel (desactive si allowed_ranges est vide).
+
+    Desactive par defaut : le MVP doit fonctionner contre une cible externe
+    quelconque (voir PROJECT.md), donc restreindre par defaut a des plages
+    privees contredirait cet objectif. Un operateur peut l'activer via
+    ALLOWED_TARGET_RANGES pour verrouiller ses propres missions a un
+    laboratoire connu. Ferme (retourne False) si la resolution DNS d'un nom
+    d'hote echoue alors que la restriction est active : on ne devine jamais
+    la portee d'une cible qu'on ne sait pas resoudre.
+    """
+    if not allowed_ranges:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        try:
+            ip = ipaddress.ip_address(socket.gethostbyname(host))
+        except (OSError, ValueError):
+            return False
+    for cidr in allowed_ranges:
+        try:
+            if ip in ipaddress.ip_network(cidr, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
