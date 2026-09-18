@@ -183,6 +183,18 @@ def test_enforce_progression_allows_end_only_after_report_completed():
     assert next_phase == "end"
 
 
+def test_enforce_progression_honors_a_forward_skip_suggestion():
+    """Documente un comportement intentionnel : une suggestion du LLM
+
+    (MissionState.last_decision) peut faire sauter une phase intermediaire.
+    Ce n'est pas un bug - le filet de securite (voir core/orchestrator.py)
+    finit par y revenir de lui-meme si rien ne la recontourne ensuite.
+    """
+    mission = make_mission(completed_phases=["recon"])
+    next_phase = enforce_progression(mission, "exploit", max_cycles=10)
+    assert next_phase == "exploit"
+
+
 def test_enforce_progression_treats_invalid_phase_like_a_repeat():
     mission = make_mission(completed_phases=["recon"])
     next_phase = enforce_progression(mission, "not-a-real-phase", max_cycles=10)
