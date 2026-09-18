@@ -268,17 +268,19 @@ class _StubSqlmap:
 
 
 class _StubDalfox:
-    def __init__(self, vulnerable_urls: set[str] = frozenset()) -> None:
+    def __init__(self, vulnerable_urls: set[str] = frozenset(), reflected_urls: set[str] = frozenset()) -> None:
         self._vulnerable_urls = vulnerable_urls
+        self._reflected_urls = reflected_urls
         self.calls: list[dict] = []
 
     async def run(self, url, cookie=None, **kwargs) -> ToolResult:
         self.calls.append({"url": url, "cookie": cookie})
         vulnerable = url in self._vulnerable_urls
-        findings = [{"type": "reflected", "param": "q", "payload": "<script>"}] if vulnerable else []
+        findings = [{"param": "q", "payload": "<script>"}] if vulnerable else []
+        reflected = [{"param": "q", "payload": "<script>"}] if url in self._reflected_urls else []
         return ToolResult(
             tool="dalfox", command=[], returncode=0, stdout="", stderr="", success=True,
-            parsed={"vulnerable": vulnerable, "findings": findings},
+            parsed={"vulnerable": vulnerable, "findings": findings, "reflected": reflected},
         )
 
 
@@ -356,3 +358,34 @@ async def test_exploit_agent_tests_all_three_vectors_per_candidate_url():
     assert f"XSS confirmee sur {url}" in titles
     assert f"Injection de commandes confirmee sur {url}" in titles
     assert all(f.exploited and f.severity.name == "CRITICAL" for f in result.findings)
+
+
+@pytest.mark.asyncio
+async def test_exploit_agent_records_reflected_xss_as_lead_not_finding():
+    """Regression directe : dalfox "Reflected" (type R) n'est jamais une
+
+    preuve d'exploitation - seulement une piste a verifier manuellement.
+    """
+    agent = ExploitAgent.__new__(ExploitAgent)
+    agent.name = "exploit"
+
+    async def fake_ask_llm(*args, **kwargs):
+        return {"summary": "", "suggested_leads": []}
+
+    agent.ask_llm = fake_ask_llm
+    url = "http://10.0.0.1:80/?q=1"
+    agent.sqlmap = _StubSqlmap()
+    agent.dalfox = _StubDalfox(reflected_urls={url})
+    agent.commix = _StubCommix()
+
+    mission = MissionState(
+        mission_id="m9", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+    mission.target.services = {80: "http"}
+    mission.scratch["enum"] = {"candidate_urls": [url], "base_urls": [], "post_forms": []}
+
+    result = await agent.run(mission)
+
+    assert result.findings == []
+    reflected_leads = [l for l in result.leads if "reflected" in l.tags]
+    assert len(reflected_leads) == 1
