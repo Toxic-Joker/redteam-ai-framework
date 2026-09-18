@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 
+import httpx
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -35,6 +36,21 @@ async def on_startup() -> None:
         app.mount("/reports_static", StaticFiles(directory=settings.reports_dir), name="reports_static")
     except Exception:  # noqa: BLE001 - le montage statique n'est pas critique au demarrage
         logging.getLogger(__name__).warning("Montage de /reports_static impossible", exc_info=True)
+
+
+@app.get("/health")
+async def health() -> dict:
+    # Le LLM est consultatif, mais quand Ollama est injoignable, chaque
+    # ask_llm degrade silencieusement en {} - un operateur n'a sinon aucun
+    # signal visible d'un backend hors service. Voir docs/HISTORY.md.
+    ollama_ok = False
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get(f"{settings.ollama_base_url}/api/tags")
+            ollama_ok = response.status_code == 200
+    except Exception:  # noqa: BLE001 - un Ollama injoignable n'est pas une erreur serveur
+        ollama_ok = False
+    return {"status": "ok" if ollama_ok else "degraded", "ollama": ollama_ok, "model": settings.ollama_model_main}
 
 
 @app.get("/")

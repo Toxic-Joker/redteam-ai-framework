@@ -30,6 +30,15 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _dedup_key_text(value: str) -> str:
+    """Normalise pour la comparaison de doublons : espaces, casse, barre
+
+    oblique finale (ex. "/admin/" et "/admin" doivent compter comme le meme
+    chemin).
+    """
+    return value.strip().lower().rstrip("/")
+
+
 def cap_severity(severity: Severity, exploited: bool) -> Severity:
     """Sans preuve d'exploitation, une decouverte ne depasse jamais MEDIUM.
 
@@ -139,11 +148,29 @@ class MissionState:
 
     def add_finding(self, finding: Finding) -> None:
         # Append-only : un finding confirme n'est jamais retire ni modifie
-        # apres coup, seulement consolide au moment de sa creation.
+        # apres coup, seulement consolide au moment de sa creation. Dedoublonne
+        # sur (titre, composant affecte, severite) normalises : un meme outil
+        # (nikto, gobuster, ...) peut resignaler la meme chose deux fois dans
+        # une mission, ce qui produirait sinon des findings litteralement
+        # dupliques dans le rapport.
+        key = (_dedup_key_text(finding.title), _dedup_key_text(finding.affected_component), finding.severity)
+        for existing in self.findings:
+            existing_key = (
+                _dedup_key_text(existing.title),
+                _dedup_key_text(existing.affected_component),
+                existing.severity,
+            )
+            if existing_key == key:
+                return
         self.findings.append(finding)
         self.updated_at = _now()
 
     def add_lead(self, lead: Lead) -> None:
+        # Meme logique de dedoublonnage que add_finding, sur (titre, source).
+        key = (_dedup_key_text(lead.title), lead.source)
+        for existing in self.leads:
+            if (_dedup_key_text(existing.title), existing.source) == key:
+                return
         self.leads.append(lead)
         self.updated_at = _now()
 

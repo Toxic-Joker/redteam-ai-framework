@@ -271,7 +271,8 @@ header {
   <a class="logo" href="#">REDTEAM//AI <span>COMMAND CENTER</span></a>
   <div class="header-right">
     <span class="sys-time" x-text="clock"></span>
-    <div class="status-dot" :class="{'offline': !wsConnected}" :title="wsConnected ? 'WebSocket connecte' : 'WebSocket hors ligne (repli sur le polling)'"></div>
+    <div class="status-dot" :class="{'offline': !wsConnected || !ollamaOk}"
+         :title="!ollamaOk ? 'Ollama hors ligne : le LLM consultatif ne repondra pas' : (wsConnected ? 'WebSocket connecte' : 'WebSocket hors ligne (repli sur le polling)')"></div>
   </div>
 </header>
 
@@ -530,6 +531,7 @@ function dashboard() {
   return {
     clock: '',
     wsConnected: false,
+    ollamaOk: true,
     ws: null,
     wsReconnectTimer: null,
 
@@ -555,6 +557,8 @@ function dashboard() {
     async init() {
       this.tickClock();
       setInterval(() => this.tickClock(), 1000);
+      await this.checkHealth();
+      setInterval(() => this.checkHealth(), 15000);
       await this.loadMissions();
       setInterval(() => this.loadMissions(), 5000);
       this.connectWs();
@@ -562,6 +566,16 @@ function dashboard() {
 
     tickClock() {
       this.clock = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+    },
+
+    async checkHealth() {
+      try {
+        const r = await fetch('/health');
+        const d = await r.json();
+        this.ollamaOk = !!d.ollama;
+      } catch (e) {
+        this.ollamaOk = false;
+      }
     },
 
     get isRunning() {
