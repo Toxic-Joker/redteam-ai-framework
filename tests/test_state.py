@@ -13,6 +13,7 @@ from core.state import (
     compute_overall_risk,
     consolidate_denied_paths,
     enforce_progression,
+    is_target_in_allowed_ranges,
 )
 
 
@@ -74,6 +75,34 @@ def test_finding_preserves_critical_when_exploited_true():
         exploited=True,
     )
     assert finding.severity == Severity.CRITICAL
+
+
+def test_finding_appends_transparency_note_when_severity_is_capped():
+    finding = Finding(
+        title="Apache httpd vulnerable a Heartbleed (hallucine)",
+        severity=Severity.CRITICAL,
+        description="Description originale.",
+        affected_component="10.0.0.1:80",
+        evidence="",
+        discovered_by="recon",
+        exploited=False,
+    )
+    assert "Description originale." in finding.description
+    assert "plafonnee a MEDIUM" in finding.description
+    assert "CRITICAL" in finding.description
+
+
+def test_finding_no_transparency_note_when_not_capped():
+    finding = Finding(
+        title="Chemins accessibles",
+        severity=Severity.LOW,
+        description="Description originale.",
+        affected_component="x",
+        evidence="",
+        discovered_by="enum",
+        exploited=False,
+    )
+    assert finding.description == "Description originale."
 
 
 def test_finding_clears_cve_without_exploitation_proof():
@@ -158,3 +187,26 @@ def test_enforce_progression_treats_invalid_phase_like_a_repeat():
     mission = make_mission(completed_phases=["recon"])
     next_phase = enforce_progression(mission, "not-a-real-phase", max_cycles=10)
     assert next_phase == "enum"
+
+
+def test_is_target_in_allowed_ranges_unrestricted_when_empty():
+    assert is_target_in_allowed_ranges("8.8.8.8", []) is True
+    assert is_target_in_allowed_ranges("anything-not-even-an-ip", []) is True
+
+
+def test_is_target_in_allowed_ranges_accepts_ip_inside_cidr():
+    assert is_target_in_allowed_ranges("192.168.1.33", ["192.168.0.0/16"]) is True
+
+
+def test_is_target_in_allowed_ranges_rejects_ip_outside_cidr():
+    assert is_target_in_allowed_ranges("8.8.8.8", ["10.0.0.0/8", "192.168.0.0/16"]) is False
+
+
+def test_is_target_in_allowed_ranges_fails_closed_on_unresolvable_hostname(monkeypatch):
+    import socket
+
+    def fake_gethostbyname(host):
+        raise socket.gaierror("nom introuvable")
+
+    monkeypatch.setattr(socket, "gethostbyname", fake_gethostbyname)
+    assert is_target_in_allowed_ranges("does-not-resolve.invalid", ["10.0.0.0/8"]) is False

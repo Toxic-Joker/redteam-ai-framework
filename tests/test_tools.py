@@ -1,4 +1,6 @@
+import asyncio
 import json
+import sys
 
 import pytest
 
@@ -98,6 +100,45 @@ def test_sqlmap_build_command_is_batch_by_default(monkeypatch):
     assert "--batch" in args
 
 
+def test_sqlmap_does_not_flag_negative_result_as_vulnerable():
+    """Regression directe : un deploiement reel a scanne la propre route
+
+    racine du framework (mauvaise cible, pas DVWA) et a obtenu un CRITICAL
+    fabrique parce que le parsing combinait "parameter" et "injectable"
+    n'importe ou dans la sortie - y compris dans le message NEGATIF de
+    sqlmap. Voir docs/HISTORY.md, section 6, incident 3.
+    """
+    tool = SqlmapTool()
+    stdout = (
+        "[INFO] testing 'AND boolean-based blind'\n"
+        "[WARNING] GET parameter 'id' does not seem to be injectable\n"
+        "[CRITICAL] all tested parameters do not appear to be injectable\n"
+        "GET parameter 'id' is NOT injectable\n"
+    )
+    result = ToolResult(tool="sqlmap", command=[], returncode=1, stdout=stdout, stderr="", success=True)
+    parsed = tool.parse_output(result)
+    assert parsed["vulnerable"] is False
+
+
+def test_sqlmap_flags_genuine_positive_result_as_vulnerable():
+    tool = SqlmapTool()
+    stdout = (
+        "[INFO] testing 'AND boolean-based blind'\n"
+        "GET parameter 'id' is vulnerable. Do you want to keep testing the others (if any)? [y/N] N\n"
+        "Parameter: id (GET)\n"
+    )
+    result = ToolResult(tool="sqlmap", command=[], returncode=0, stdout=stdout, stderr="", success=True)
+    parsed = tool.parse_output(result)
+    assert parsed["vulnerable"] is True
+
+
+def test_sqlmap_is_success_accepts_clean_not_vulnerable_exit_code():
+    tool = SqlmapTool()
+    assert tool.is_success(0) is True
+    assert tool.is_success(1) is True
+    assert tool.is_success(2) is False
+
+
 def test_ffuf_parses_json_results():
     tool = FfufTool()
     payload = json.dumps({"results": [{"input": {"FUZZ": "admin"}, "status": 403, "length": 10}]})
@@ -108,3 +149,34 @@ def test_ffuf_parses_json_results():
 
 def test_is_root_never_raises_on_any_platform():
     assert BaseTool.is_root() in (True, False)
+
+
+class _SleepTool(BaseTool):
+    name = "sleep"
+    binary = sys.executable
+
+    def build_command(self, marker_path: str, **kwargs):
+        return [sys.executable, "-c", f"import time; time.sleep(5); open({marker_path!r}, 'w').close()"]
+
+    def parse_output(self, result: ToolResult) -> dict:
+        return {}
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_tool_run_kills_the_subprocess_instead_of_orphaning_it(tmp_path):
+    """Une mission annulee (POST .../abort) ne doit jamais laisser un
+
+    processus d'outil externe (nmap, gobuster, ...) tourner en arriere-plan.
+    """
+    marker = tmp_path / "done.marker"
+    tool = _SleepTool()
+
+    task = asyncio.create_task(tool.run(marker_path=str(marker)))
+    await asyncio.sleep(0.3)  # laisser le sous-processus demarrer reellement
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    await asyncio.sleep(0.3)  # laisser le kill se propager
+    assert not marker.exists()  # le sous-processus n'a jamais atteint la fin de son sleep(5)

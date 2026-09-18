@@ -39,6 +39,12 @@ class BaseTool(abc.ABC):
             return False
         return geteuid() == 0
 
+    def is_success(self, returncode: int) -> bool:
+        # Surchargeable : certains outils (sqlmap) utilisent un code de
+        # sortie non nul pour un resultat propre mais negatif ("pas
+        # vulnerable"), ce qui n'est pas un echec d'execution.
+        return returncode == 0
+
     async def _run(self, args: list[str], timeout: int = 300) -> ToolResult:
         proc = await asyncio.create_subprocess_exec(
             *args,
@@ -51,6 +57,16 @@ class BaseTool(abc.ABC):
             proc.kill()
             await proc.communicate()
             return ToolResult(tool=self.name, command=args, returncode=-1, stdout="", stderr="timeout", success=False)
+        except asyncio.CancelledError:
+            # Mission interrompue par l'operateur (POST .../abort) : ne jamais
+            # laisser un processus d'outil externe (nmap, gobuster, ...)
+            # orphelin en arriere-plan une fois la tache annulee.
+            proc.kill()
+            try:
+                await proc.communicate()
+            except Exception:  # noqa: BLE001 - nettoyage best-effort, l'annulation prime
+                pass
+            raise
         stdout = stdout_b.decode(errors="replace")
         stderr = stderr_b.decode(errors="replace")
         return ToolResult(
@@ -59,7 +75,7 @@ class BaseTool(abc.ABC):
             returncode=proc.returncode or 0,
             stdout=stdout,
             stderr=stderr,
-            success=(proc.returncode == 0),
+            success=self.is_success(proc.returncode or 0),
         )
 
     @abc.abstractmethod

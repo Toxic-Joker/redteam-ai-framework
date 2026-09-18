@@ -36,9 +36,16 @@ class EnumAgent(BaseAgent):
         state.current_agent = self.name
         host = state.target.host
 
+        # Chemins accessibles decouverts cette phase, partages via
+        # state.scratch pour que l'agent d'exploitation n'ait pas besoin de
+        # re-deriver cette information depuis la liste plate tool_results.
+        candidate_urls: list[str] = []
+        base_urls: list[str] = []
+
         for port, is_ssl in self._http_ports(state):
             scheme = "https" if is_ssl else "http"
             base_url = f"{scheme}://{host}:{port}"
+            base_urls.append(base_url)
 
             gob_result = await self.gobuster.run(target=base_url)
             state.tool_results.append({"agent": self.name, "tool": "gobuster", "result": gob_result.parsed})
@@ -53,6 +60,7 @@ class EnumAgent(BaseAgent):
                 state.add_finding(denied_finding)
 
             accessible = [p for p in all_paths if p.get("status_code") == 200]
+            candidate_urls.extend(f"{base_url}{p['path']}" for p in accessible)
             if accessible:
                 state.add_finding(
                     Finding(
@@ -100,6 +108,8 @@ class EnumAgent(BaseAgent):
                     tags=["llm-suggestion"],
                 )
             )
+
+        state.scratch["enum"] = {"candidate_urls": candidate_urls, "base_urls": base_urls}
 
         state.completed_phases.append(self.name)
         state.attack_chain.append({"phase": self.name, "summary": llm_summary.get("summary", "")})

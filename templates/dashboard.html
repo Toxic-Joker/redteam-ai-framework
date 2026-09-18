@@ -16,7 +16,7 @@
         <h2>Missions</h2>
         <table>
             <thead>
-                <tr><th>Nom</th><th>Cible</th><th>Statut</th><th>Phase</th><th>Risque</th><th>Rapport</th></tr>
+                <tr><th>Nom</th><th>Cible</th><th>Statut</th><th>Phase</th><th>Risque</th><th>Actions</th></tr>
             </thead>
             <tbody>
                 <template x-for="m in missions" :key="m.mission_id">
@@ -28,6 +28,8 @@
                         <td><span class="badge" :class="m.overall_risk" x-text="m.overall_risk"></span></td>
                         <td>
                             <a :href="'/api/reports/' + m.mission_id + '/download'" x-show="m.status === 'completed'">Telecharger</a>
+                            <a href="#" @click.prevent="abortMission(m.mission_id)" x-show="m.status === 'running'">Interrompre</a>
+                            <a href="#" @click.prevent="deleteMission(m.mission_id)" x-show="m.status !== 'running'">Supprimer</a>
                         </td>
                     </tr>
                 </template>
@@ -70,6 +72,25 @@ function missionDashboard() {
             } else {
                 const err = await res.json();
                 alert(err.detail || 'Erreur lors de la creation de la mission');
+            }
+        },
+        async abortMission(missionId) {
+            const res = await fetch('/api/missions/' + missionId + '/abort', { method: 'POST' });
+            if (res.ok) {
+                await this.refresh();
+            } else {
+                const err = await res.json();
+                alert(err.detail || "Erreur lors de l'interruption de la mission");
+            }
+        },
+        async deleteMission(missionId) {
+            if (!confirm('Supprimer cette mission et son rapport ?')) return;
+            const res = await fetch('/api/missions/' + missionId, { method: 'DELETE' });
+            if (res.ok) {
+                await this.refresh();
+            } else {
+                const err = await res.json();
+                alert(err.detail || 'Erreur lors de la suppression de la mission');
             }
         },
     };

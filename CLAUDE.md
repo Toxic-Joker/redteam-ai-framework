@@ -49,6 +49,9 @@ Chaque ligne correspond à un incident réel documenté dans `docs/HISTORY.md`, 
 - [ ] Le plafonnement de sévérité doit être appliqué par **tous** les agents qui créent des findings, sans exception, en particulier l'agent de reconnaissance. Écrire la fonction une fois dans `core/`, l'appeler partout, jamais la dupliquer.
 - [ ] La limite de cycles et le suivi des phases terminées de l'orchestrateur doivent exister depuis le premier commit du graphe, pas être ajoutés après avoir observé une boucle infinie.
 - [ ] Un guess `-O` (détection d'OS) à faible confiance ne doit jamais apparaître comme un fait dans un rapport.
+- [ ] Détection de vulnérabilité `sqlmap` : ne jamais combiner des mots-clés indépendants présents n'importe où dans la sortie (`"parameter" in stdout and "injectable" in stdout`) — `sqlmap` imprime aussi ces deux mots dans ses messages **négatifs** (`"parameter 'id' is NOT injectable"`). Un seul signal positif non ambigu, vérifié ligne par ligne (voir `docs/HISTORY.md`, section 6).
+- [ ] Démarrer une mission avec `asyncio.create_task` (handle conservé pour permettre l'annulation), jamais `BackgroundTasks` de FastAPI qui ne donne aucune prise pour interrompre une mission en cours.
+- [ ] Toute bibliothèque synchrone/bloquante appelée depuis un agent (ex. `dnspython`) doit passer par `asyncio.to_thread`, jamais un appel direct dans une coroutine — un appel bloquant y gèle toute la boucle asyncio, donc l'API et le dashboard entiers, pas seulement la mission en cours.
 
 ---
 
@@ -187,9 +190,10 @@ redteam-framework/
 - Résultats confirmés : `findings` (liste de `Finding`), append-only.
 - Hypothèses non confirmées : `leads` (liste de `Lead`), append-only, jamais utilisées dans le calcul du risque.
 - Journal : `attack_chain`, `tool_results`, `errors`.
+- Contexte partage entre phases : `scratch` (dict par nom d'agent, ex. `scratch["enum"]["candidate_urls"]`) - purement informatif, jamais une source pour une decision de severite/risque.
 - Rapport : `report_path`.
 
-**`Finding`** : `title`, `severity` (enum CRITICAL/HIGH/MEDIUM/LOW/INFO), `description`, `affected_component`, `evidence`, `cve` (optionnel, jamais rempli sans preuve d'exploitation), `remediation`, `discovered_by`, `tags`.
+**`Finding`** : `title`, `severity` (enum CRITICAL/HIGH/MEDIUM/LOW/INFO), `description`, `affected_component`, `evidence`, `cve` (optionnel, jamais rempli sans preuve d'exploitation), `remediation`, `discovered_by`, `tags`. Si `cap_severity` plafonne effectivement la severite a la construction, une note automatique est ajoutee a `description` (visible dans le rapport) plutot qu'un plafonnement silencieux.
 
 **`Lead`** (piste spéculative) : `title`, `rationale`, `source`, `confidence` (0 à 1), `tags`. Pas de champ `severity` : une piste n'est pas notée, elle est à vérifier.
 
@@ -223,6 +227,12 @@ enforce_progression(state, proposed_next_phase) -> phase
     #   - si proposed_next_phase déjà dans completed_phases (et != "report") :
     #     force la première phase non terminée de l'ordre linéaire
     #   - si le LLM veut terminer sans être passé par "report" : force "report"
+
+is_target_in_allowed_ranges(host, allowed_ranges) -> bool
+    # Garde-fou de périmètre optionnel (désactivé si allowed_ranges est vide,
+    # ce qui est le défaut : le MVP doit fonctionner contre une cible externe
+    # quelconque). Résout un nom d'hôte en IP pour la vérification ; ferme
+    # (False) si la résolution échoue alors que la restriction est active.
 ```
 
 Contrat pour `nmap_tool.py` :
@@ -307,6 +317,7 @@ Marge confortable sous le plafond de sécurité de 25 Go, même en configuration
 | `OLLAMA_MODEL_MAIN` | `qwen3.5:9b` | Modèle utilisé par tous les agents. Sur une machine à ~8 Go de RAM, basculer sur `qwen3.5:4b` ; repli de compatibilité : `qwen3:8b`. Sans changement de code dans tous les cas. Voir section 3 pour le choix selon la RAM disponible. |
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Modèle d'embeddings pour ChromaDB. |
 | `REQUIRE_AUTHORIZATION` | `true` | Bloque toute mission sans `authorization_ref`. |
+| `ALLOWED_TARGET_RANGES` | (vide) | CIDR separes par des virgules. Vide = aucune restriction (defaut, coherent avec le support de cibles externes). Garde-fou optionnel via `core/state.py::is_target_in_allowed_ranges`. |
 | `NMAP_SCAN_MODE` | `syn` | `syn` (`-sS`, défaut si root) ou `connect` (`-sT`, repli réseaux filtrés/non-root). |
 | `MAX_CYCLES` | `10` | Garde-fou anti-boucle de l'orchestrateur. |
 | `LOG_LEVEL` | `INFO` | Niveau de log. |
