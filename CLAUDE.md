@@ -56,6 +56,7 @@ Chaque ligne correspond à un incident réel documenté dans `docs/HISTORY.md`, 
 - [ ] L'extraction JSON d'une réponse LLM doit tolérer les cloisons markdown, les caractères de contrôle littéraux (`json.loads(..., strict=False)`), le texte parasite avant/après l'objet et les virgules traînantes — un modèle local plus modeste produit ce genre d'imperfections en pratique, pas seulement du JSON invalide pur et simple.
 - [ ] Passer un `recursion_limit` explicite à LangGraph en plus du compteur `orchestration_cycles` — ne jamais dépendre implicitement de la limite par défaut de la bibliothèque (non documentée, sujette à changer).
 - [ ] Ne jamais deviner un nom de flag CLI par analogie avec un autre outil du même Dockerfile (`-Header` existe chez d'autres scanners, pas chez `nikto` 2.5.0 — vérifié dans son `GetOptions` réel). Un flag invalide peut faire échouer l'outil en silence : `nikto` retombe dans son écran d'aide et sort avec un code 0 (`exit $is_failure` non défini, numifié à 0 en Perl), donc perçu comme un succès — aucune erreur nulle part, un texte d'aide confondu avec un vrai finding (`docs/HISTORY.md`, section 17). Lire le parseur d'arguments réel de l'outil, pas seulement son format de sortie (cf. règle dalfox ci-dessus).
+- [ ] Les outils indépendants d'une même phase (aucun ne lit la sortie d'un autre) s'exécutent en parallèle via `asyncio.gather()`, jamais en séquence par défaut — la séquentialité était un choix par défaut non examiné, pas une nécessité, et a multiplié le temps de mission sans raison (`docs/HISTORY.md`, section 18). Seul l'ordre *entre* phases (recon avant enum avant exploit) est une vraie dépendance, déjà protégée par `enforce_progression`. Tout fan-out sur une liste de taille variable (URLs candidates, formulaires) passe par un `asyncio.Semaphore` borné, jamais une rafale illimitée de sous-processus.
 
 ---
 
@@ -332,6 +333,10 @@ Marge confortable sous le plafond de sécurité de 25 Go, même en configuration
 | `NMAP_SCAN_MODE` | `syn` | `syn` (`-sS`, défaut si root) ou `connect` (`-sT`, repli réseaux filtrés/non-root). |
 | `MAX_CYCLES` | `10` | Garde-fou anti-boucle de l'orchestrateur. |
 | `LOG_LEVEL` | `INFO` | Niveau de log. |
+| `LLM_NUM_PREDICT` | `512` | Plafond de generation Ollama par appel. Chaque prompt demande un JSON court ; borne le pire cas sur un modele CPU-only sans jamais couper une reponse utile (`docs/HISTORY.md`, section 18). |
+| `LLM_TIMEOUT_SECONDS` | `180` | Delai de securite par appel LLM (`client_kwargs` du client `ollama`, base sur httpx) - un appel bloque ne doit jamais geler une phase indefiniment. |
+| `NIKTO_MAX_TIME` | `180s` | `-maxtime` de nikto lui-meme (flag reel, voir `usage()`) : borne le pire cas sur un site lent/verbeux. |
+| `EXPLOIT_MAX_CONCURRENT_URLS` | `5` | Parallelisme borne entre URLs/formulaires candidats dans `exploit_agent.py` (`asyncio.Semaphore`) - jamais une rafale illimitee de sous-processus sur la cible. |
 
 ---
 

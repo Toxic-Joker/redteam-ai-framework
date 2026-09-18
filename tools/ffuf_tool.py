@@ -18,7 +18,9 @@ class FfufTool(BaseTool):
         binary = self.binary_path()
         wl = resolve_wordlist(wordlist)
         url = target.rstrip("/") + "/FUZZ"
-        args = [binary, "-u", url, "-w", wl, "-of", "json", "-o", "-", "-s"]
+        # -t 80 : meme raisonnement que gobuster (voir gobuster_tool.py) -
+        # ffuf tourne en parallele des autres outils d'enumeration, pas seul.
+        args = [binary, "-u", url, "-w", wl, "-t", "80", "-of", "json", "-o", "-", "-s"]
         if cookie:
             args += ["-b", cookie]
         return args

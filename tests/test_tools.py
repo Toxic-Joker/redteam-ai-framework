@@ -42,6 +42,21 @@ def test_nmap_always_includes_pn_flag(monkeypatch):
         assert "-Pn" in args
 
 
+def test_nmap_ports_and_vuln_scans_include_speed_flags(monkeypatch):
+    # -T4/--min-rate accelerent un -p- complet sans jamais reduire sa portee
+    # (le critere de validation MVP sur un port non standard reste intact) -
+    # voir docs/HISTORY.md, section 18.
+    tool = NmapTool()
+    monkeypatch.setattr(tool, "binary_path", lambda: "/usr/bin/nmap")
+    monkeypatch.setattr(NmapTool, "is_root", staticmethod(lambda: True))
+    for mode in ("ports", "vuln"):
+        args = tool.build_command(target="10.0.0.1", mode=mode)
+        assert "-T4" in args
+        assert "--min-rate" in args
+    ports_args = tool.build_command(target="10.0.0.1", mode="ports")
+    assert "-p-" in ports_args
+
+
 def test_nmap_falls_back_to_connect_scan_without_root(monkeypatch):
     tool = NmapTool()
     monkeypatch.setattr(tool, "binary_path", lambda: "/usr/bin/nmap")
@@ -142,6 +157,15 @@ def test_nikto_omits_option_flag_when_cookie_absent(monkeypatch):
     monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/nikto")
     args = tool.build_command(target="10.0.0.1", port=80)
     assert "-Option" not in args
+
+
+def test_nikto_includes_maxtime_bound(monkeypatch):
+    # Borne le pire cas (site lent/verbeux) sans changer ce que nikto trouve
+    # sur une cible normale - voir docs/HISTORY.md, section 18.
+    tool = NiktoTool()
+    monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/nikto")
+    args = tool.build_command(target="10.0.0.1", port=80)
+    assert "-maxtime" in args
 
 
 def test_nikto_parse_output_ignores_usage_screen_legend_line():

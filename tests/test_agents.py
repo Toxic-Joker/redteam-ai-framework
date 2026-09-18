@@ -4,6 +4,8 @@ un guess d'OS a faible confiance ne doit jamais apparaitre comme un fait sur
 Target, seulement comme une Lead. L'agent est teste sans connexion LLM ni
 outil reel (BaseAgent.__init__ est court-circuite).
 """
+from types import SimpleNamespace
+
 import pytest
 
 import agents.recon_agent as recon_agent_module
@@ -302,6 +304,7 @@ class _StubCommix:
 async def test_exploit_agent_tests_post_forms_discovered_by_crawler():
     agent = ExploitAgent.__new__(ExploitAgent)
     agent.name = "exploit"
+    agent._settings = SimpleNamespace(exploit_max_concurrent_urls=5)
 
     async def fake_ask_llm(*args, **kwargs):
         return {"summary": "", "suggested_leads": []}
@@ -335,6 +338,7 @@ async def test_exploit_agent_tests_post_forms_discovered_by_crawler():
 async def test_exploit_agent_tests_all_three_vectors_per_candidate_url():
     agent = ExploitAgent.__new__(ExploitAgent)
     agent.name = "exploit"
+    agent._settings = SimpleNamespace(exploit_max_concurrent_urls=5)
 
     async def fake_ask_llm(*args, **kwargs):
         return {"summary": "", "suggested_leads": []}
@@ -368,6 +372,7 @@ async def test_exploit_agent_records_reflected_xss_as_lead_not_finding():
     """
     agent = ExploitAgent.__new__(ExploitAgent)
     agent.name = "exploit"
+    agent._settings = SimpleNamespace(exploit_max_concurrent_urls=5)
 
     async def fake_ask_llm(*args, **kwargs):
         return {"summary": "", "suggested_leads": []}

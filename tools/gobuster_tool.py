@@ -40,7 +40,10 @@ class GobusterTool(BaseTool):
     ) -> list[str]:
         binary = self.binary_path()
         wl = resolve_wordlist(wordlist)
-        args = [binary, "dir", "-u", target, "-w", wl, "-q", "-n", "-o", "-"]
+        # -t 50 : gobuster tourne desormais en parallele des 4 autres outils
+        # d'enumeration (voir enum_agent.py), le defaut conservateur de 10
+        # threads n'a plus de raison de dominer le temps total de la phase.
+        args = [binary, "dir", "-u", target, "-w", wl, "-t", "50", "-q", "-n", "-o", "-"]
         if extensions:
             args += ["-x", extensions]
         if cookie:
