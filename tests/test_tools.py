@@ -9,6 +9,7 @@ from tools.ffuf_tool import FfufTool
 from tools.gobuster_tool import GobusterTool, resolve_wordlist
 from tools.nikto_tool import NiktoTool
 from tools.nmap_tool import NmapTool
+from tools.nuclei_tool import NucleiTool
 from tools.sqlmap_tool import SqlmapTool
 
 NMAP_XML_SAMPLE = """<?xml version="1.0"?>
@@ -232,3 +233,47 @@ async def test_cancelling_a_tool_run_kills_the_subprocess_instead_of_orphaning_i
 
     await asyncio.sleep(0.3)  # laisser le kill se propager
     assert not marker.exists()  # le sous-processus n'a jamais atteint la fin de son sleep(5)
+
+
+def test_nuclei_build_command_uses_jsonl_and_no_cookie_flag(monkeypatch):
+    tool = NucleiTool()
+    monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/nuclei")
+    args = tool.build_command(target="http://10.0.0.1", cookie="PHPSESSID=abc")
+    assert "-jsonl" in args
+    # nuclei n'a pas de flag cookie dedie : il passe par un en-tete generique.
+    assert "-H" in args
+    assert "Cookie: PHPSESSID=abc" in args
+    assert "-cookie" not in args
+
+
+def test_nuclei_omits_header_flag_without_cookie(monkeypatch):
+    tool = NucleiTool()
+    monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/nuclei")
+    args = tool.build_command(target="http://10.0.0.1")
+    assert "-H" not in args
+
+
+def test_nuclei_parses_jsonl_matches():
+    tool = NucleiTool()
+    stdout = "\n".join(
+        [
+            json.dumps(
+                {
+                    "template-id": "exposed-panel",
+                    "info": {"name": "Exposed Admin Panel", "severity": "high", "description": "desc"},
+                    "matched-at": "http://10.0.0.1/admin",
+                    "curl-command": "curl http://10.0.0.1/admin",
+                }
+            ),
+            "",  # ligne vide, doit etre ignoree sans planter
+            "not json at all",  # ligne malformee, doit etre ignoree sans planter
+        ]
+    )
+    result = ToolResult(tool="nuclei", command=[], returncode=0, stdout=stdout, stderr="", success=True)
+    parsed = tool.parse_output(result)
+    assert len(parsed["matches"]) == 1
+    match = parsed["matches"][0]
+    assert match["template_id"] == "exposed-panel"
+    assert match["name"] == "Exposed Admin Panel"
+    assert match["severity"] == "high"
+    assert match["matched_at"] == "http://10.0.0.1/admin"

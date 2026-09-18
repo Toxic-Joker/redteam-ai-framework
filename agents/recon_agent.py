@@ -1,7 +1,11 @@
-"""Reconnaissance : nmap decouverte/ports/vuln. Applique cap_severity sur
+"""Reconnaissance : nmap decouverte/ports/vuln.
 
-chaque finding, sans exception (incident #10 : c'est precisement l'agent qui
-avait ete oublie dans la v1).
+Ne plafonne jamais explicitement une severite ici : Finding.__post_init__
+(core/state.py) est l'unique point d'application de cap_severity, pour que
+la note de transparence compare bien la severite reellement voulue par
+l'agent a la severite finale (incident #10 : c'est precisement l'agent qui
+avait ete oublie dans la v1 quand le plafonnement dependait de la
+discipline de chaque agent plutot que d'une garantie structurelle).
 """
 from __future__ import annotations
 
@@ -11,7 +15,7 @@ import ipaddress
 import dns.resolver
 import dns.reversename
 
-from core.state import Finding, Lead, MissionState, Severity, cap_severity
+from core.state import Finding, Lead, MissionState, Severity
 from tools.nmap_tool import NmapTool
 
 from .base_agent import BaseAgent
@@ -118,11 +122,10 @@ class ReconAgent(BaseAgent):
         state.tool_results.append({"agent": self.name, "tool": "nmap-vuln", "result": vuln_result.parsed})
         for port in vuln_result.parsed.get("open_ports", []):
             for script in port.get("scripts", []):
-                severity = cap_severity(Severity.MEDIUM, exploited=False)
                 state.add_finding(
                     Finding(
                         title=f"Script nmap {script['id']} positif sur le port {port['port']}",
-                        severity=severity,
+                        severity=Severity.MEDIUM,
                         description=(script.get("output") or "")[:500],
                         affected_component=f"{host}:{port['port']} ({port.get('service', 'unknown')})",
                         evidence=script.get("output", ""),

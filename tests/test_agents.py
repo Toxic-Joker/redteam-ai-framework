@@ -134,6 +134,7 @@ async def test_enum_agent_populates_scratch_with_query_bearing_urls():
     agent.ffuf = _StubEnumTool({"paths": []})
     agent.nikto = _StubEnumTool({"items": []})
     agent.crawler = _StubCrawler()
+    agent.nuclei = _StubEnumTool({"matches": []})
 
     mission = MissionState(
         mission_id="m4", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
@@ -163,6 +164,7 @@ async def test_enum_agent_merges_crawler_urls_and_post_forms_into_scratch():
         urls_with_params=["http://10.0.0.1:80/vulnerabilities/sqli/?id=1"],
         post_forms=[{"url": "http://10.0.0.1:80/login.php", "data": "username=1&password=1"}],
     )
+    agent.nuclei = _StubEnumTool({"matches": []})
 
     mission = MissionState(
         mission_id="m4b", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
@@ -175,6 +177,51 @@ async def test_enum_agent_merges_crawler_urls_and_post_forms_into_scratch():
     assert result.scratch["enum"]["post_forms"] == [
         {"url": "http://10.0.0.1:80/login.php", "data": "username=1&password=1"}
     ]
+
+
+@pytest.mark.asyncio
+async def test_enum_agent_caps_nuclei_critical_match_without_exploitation_proof():
+    """nuclei detecte des motifs, il ne confirme jamais une exploitation :
+
+    meme un match "critical" doit passer par cap_severity comme tout le
+    reste et retomber a MEDIUM sans preuve d'exploitation.
+    """
+    agent = EnumAgent.__new__(EnumAgent)
+    agent.name = "enum"
+
+    async def fake_ask_llm(*args, **kwargs):
+        return {"summary": "", "suggested_leads": []}
+
+    agent.ask_llm = fake_ask_llm
+    agent.gobuster = _StubEnumTool({"paths": []})
+    agent.ffuf = _StubEnumTool({"paths": []})
+    agent.nikto = _StubEnumTool({"items": []})
+    agent.crawler = _StubCrawler()
+    agent.nuclei = _StubEnumTool(
+        {
+            "matches": [
+                {
+                    "template_id": "exposed-panel",
+                    "name": "Exposed Admin Panel",
+                    "severity": "critical",
+                    "description": "desc",
+                    "matched_at": "http://10.0.0.1:80/admin",
+                    "curl_command": "curl http://10.0.0.1:80/admin",
+                }
+            ]
+        }
+    )
+
+    mission = MissionState(
+        mission_id="m4c", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+    mission.target.services = {80: "http"}
+
+    result = await agent.run(mission)
+
+    assert len(result.findings) == 1
+    assert result.findings[0].severity.name == "MEDIUM"
+    assert "plafonnee" in result.findings[0].description
 
 
 def test_exploit_agent_prefers_scratch_urls_over_tool_results():

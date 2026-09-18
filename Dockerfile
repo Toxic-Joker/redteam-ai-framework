@@ -23,6 +23,7 @@ ARG GOBUSTER_VERSION=v3.6.0
 ARG FFUF_VERSION=v2.1.0
 ARG NIKTO_VERSION=2.5.0
 ARG SQLMAP_VERSION=1.8.11
+ARG NUCLEI_VERSION=v3.11.1
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -53,6 +54,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         wget \
         ca-certificates \
         tar \
+        unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # gobuster : binaire de release GitHub multi-arch, nom identique au code
@@ -93,6 +95,25 @@ RUN git clone --branch "${NIKTO_VERSION}" --depth 1 https://github.com/sullo/nik
 RUN git clone --branch "${SQLMAP_VERSION}" --depth 1 https://github.com/sqlmapproject/sqlmap.git /opt/sqlmap \
     && printf '#!/bin/sh\nexec python3 /opt/sqlmap/sqlmap.py "$@"\n' > /usr/local/bin/sqlmap \
     && chmod +x /usr/local/bin/sqlmap
+
+# nuclei : binaire de release GitHub multi-arch. Contrairement a gobuster/ffuf,
+# l'archive est un .zip (pas .tar.gz) - nommage verifie via l'API GitHub avant
+# d'ecrire cette regle (incident #6 : ne jamais supposer qu'un outil suit le
+# meme schema qu'un autre). Templates communautaires pre-telecharges a la
+# construction pour ne pas en dependre au premier lancement.
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+        amd64) NUCLEI_ARCH=amd64 ;; \
+        arm64) NUCLEI_ARCH=arm64 ;; \
+        *) echo "architecture non supportee: ${TARGETARCH}" && exit 1 ;; \
+    esac; \
+    NUCLEI_VER_NUM="${NUCLEI_VERSION#v}"; \
+    curl -fsSL -o /tmp/nuclei.zip \
+        "https://github.com/projectdiscovery/nuclei/releases/download/${NUCLEI_VERSION}/nuclei_${NUCLEI_VER_NUM}_linux_${NUCLEI_ARCH}.zip"; \
+    unzip -p /tmp/nuclei.zip nuclei > /usr/local/bin/nuclei; \
+    chmod +x /usr/local/bin/nuclei; \
+    rm -f /tmp/nuclei.zip; \
+    nuclei -update-templates -silent || true
 
 # Wordlist verifiee a l'execution par tools/gobuster_tool.py::resolve_wordlist.
 RUN mkdir -p /usr/share/seclists/Discovery/Web-Content \
