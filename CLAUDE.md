@@ -235,6 +235,8 @@ is_target_in_allowed_ranges(host, allowed_ranges) -> bool
     # (False) si la résolution échoue alors que la restriction est active.
 ```
 
+Le LLM peut influencer la phase suivante (`MissionState.last_decision`, rempli via le meme appel de resume que chaque agent fait deja en fin de phase - aucun appel d'inference supplementaire), mais `enforce_progression` reste seul juge final : une suggestion invalide, deja terminee, ou tentant de finir sans passer par "report" est ignoree exactement comme un choix par defaut le serait. Cela reste coherent avec le principe directeur (`PROJECT.md`) : la sequence des phases n'est pas une severite, un risque ni une structure de rapport, donc pas une "decision critique" au sens ou ce principe l'entend.
+
 Contrat pour `nmap_tool.py` :
 - Mode découverte, ports, vuln : `-Pn` toujours présent.
 - SYN scan (`-sS`) par défaut si root ; mode `-sT` (connect scan) activable par configuration pour les environnements où le SYN scan est filtré ou pour tourner sans privilèges élevés (absent de la v1, à inclure cette fois, cf. `PROJECT.md`).

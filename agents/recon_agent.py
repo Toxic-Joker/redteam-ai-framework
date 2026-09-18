@@ -136,7 +136,10 @@ class ReconAgent(BaseAgent):
             system_prompt=(
                 "Tu es un assistant de reconnaissance reseau en test d'intrusion autorise. "
                 "Tu resumes les resultats bruts d'outils, tu ne decides jamais d'une severite. "
-                'Reponds uniquement en JSON: {"summary": str, "suggested_leads": [str, ...]}.'
+                "Tu peux suggerer la prochaine phase parmi enum, exploit, postexploit, report "
+                "si les resultats le justifient ; l'orchestrateur reste seul juge final et peut l'ignorer. "
+                'Reponds uniquement en JSON: {"summary": str, "suggested_leads": [str, ...], '
+                '"next_phase_suggestion": str}.'
             ),
             user_prompt=f"Ports ouverts: {open_ports}. OS detecte: {os_guess} (confiance {os_confidence}).",
         )
@@ -150,6 +153,7 @@ class ReconAgent(BaseAgent):
                     tags=["llm-suggestion"],
                 )
             )
+        state.last_decision = llm_summary.get("next_phase_suggestion")
 
         state.completed_phases.append(self.name)
         state.attack_chain.append({"phase": self.name, "summary": llm_summary.get("summary", "")})

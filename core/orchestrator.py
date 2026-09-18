@@ -3,11 +3,16 @@
 commit du graphe (limite de cycles, suivi des phases terminees), pas ajoutes
 apres avoir observe une boucle infinie en production.
 
-La progression entre phases est elle-meme deterministe (pipeline lineaire
-recon -> enum -> exploit -> postexploit -> report) : le LLM n'est jamais
-consulte pour choisir la prochaine phase, seulement pour resumer/proposer des
-pistes a l'interieur de chaque phase. enforce_progression() reste le filet de
-securite si cette logique est etendue plus tard vers un routage moins rigide.
+Le LLM peut influencer la prochaine phase (MissionState.last_decision, lu
+depuis le meme appel de resume que chaque agent fait deja en fin de phase -
+aucun appel d'inference supplementaire), mais n'a jamais le dernier mot :
+enforce_progression() reste seul juge final et peut ignorer, corriger ou
+annuler toute suggestion (phase invalide, deja terminee, ou tentative de finir
+sans etre passe par "report"). Une suggestion peut faire sauter une phase
+(ex. recon -> exploit directement) ; si la phase sautee n'est jamais
+revalidee par un signal deterministe, le filet de securite finit par y
+revenir de lui-meme des qu'aucune suggestion ne la contourne plus, borne par
+MAX_CYCLES dans tous les cas.
 """
 from __future__ import annotations
 
@@ -60,7 +65,12 @@ def _route(state: GraphState) -> str:
         return END
 
     remaining = [p for p in PHASE_ORDER if p not in mission.completed_phases]
-    proposed = remaining[0] if remaining else "report"
+    default_proposed = remaining[0] if remaining else "report"
+    # La suggestion du LLM (si presente et valide) prime sur l'ordre lineaire
+    # par defaut, mais enforce_progression() reste seul a decider en dernier
+    # ressort - une suggestion invalide ou absente retombe simplement sur le
+    # comportement deterministe precedent.
+    proposed = mission.last_decision or default_proposed
 
     next_phase = enforce_progression(mission, proposed, max_cycles=settings.max_cycles)
     return END if next_phase == "end" else next_phase

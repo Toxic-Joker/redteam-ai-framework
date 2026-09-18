@@ -94,7 +94,10 @@ class EnumAgent(BaseAgent):
             system_prompt=(
                 "Tu es un assistant d'enumeration web en test d'intrusion autorise. "
                 "Tu proposes des pistes a explorer, tu ne decides jamais d'une severite. "
-                'Reponds uniquement en JSON: {"summary": str, "suggested_leads": [str, ...]}.'
+                "Tu peux suggerer la prochaine phase parmi exploit, postexploit, report "
+                "si les resultats le justifient ; l'orchestrateur reste seul juge final et peut l'ignorer. "
+                'Reponds uniquement en JSON: {"summary": str, "suggested_leads": [str, ...], '
+                '"next_phase_suggestion": str}.'
             ),
             user_prompt=f"Findings collectes cette phase: {[f.title for f in state.findings]}",
         )
@@ -108,6 +111,7 @@ class EnumAgent(BaseAgent):
                     tags=["llm-suggestion"],
                 )
             )
+        state.last_decision = llm_summary.get("next_phase_suggestion")
 
         state.scratch["enum"] = {"candidate_urls": candidate_urls, "base_urls": base_urls}
 
