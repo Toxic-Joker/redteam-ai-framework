@@ -57,13 +57,12 @@ async def test_run_mission_calls_on_progress_once_per_phase(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_run_mission_honors_llm_suggestion_and_self_heals_skipped_phase(monkeypatch):
-    """recon suggere de sauter directement a exploit (piggyback sur son
+async def test_run_mission_rejects_a_forward_skip_suggestion(monkeypatch):
+    """Regression directe d'un incident reel : recon avait suggere de sauter
 
-    resume de fin de phase, sans appel d'inference supplementaire) ; la
-    phase enum sautee n'est jamais explicitement revalidee par la suite, donc
-    le filet de securite (enforce_progression) doit y revenir de lui-meme
-    avant de considerer la mission terminee.
+    directement a exploit, privant exploit_agent des URLs qu'enum aurait
+    decouvertes via MissionState.scratch (moins de cibles testees). L'ordre
+    lineaire doit rester intact meme si une suggestion tente de le rompre.
     """
     monkeypatch.setattr(
         orchestrator_module,
@@ -89,7 +88,37 @@ async def test_run_mission_honors_llm_suggestion_and_self_heals_skipped_phase(mo
     result = await run_mission(mission, on_progress=on_progress)
 
     assert result.status == "completed"
-    assert seen_agents[0] == "recon"
-    assert seen_agents[1] == "exploit"  # la suggestion a bien saute "enum"
-    assert "enum" in seen_agents  # ...mais le filet de securite l'a rattrapee
-    assert seen_agents[-1] == "report"
+    assert seen_agents == list(PHASE_ORDER)
+
+
+@pytest.mark.asyncio
+async def test_run_mission_honors_an_early_report_suggestion(monkeypatch):
+    """Le seul saut qui reste autorise : enum suggere de conclure
+
+    directement en "report", puisque rien en aval ne depend de son resultat.
+    """
+    monkeypatch.setattr(
+        orchestrator_module,
+        "AGENT_MAP",
+        {
+            "recon": _make_stub_agent("recon"),
+            "enum": _make_stub_agent("enum", decision="report"),
+            "exploit": _make_stub_agent("exploit"),
+            "postexploit": _make_stub_agent("postexploit"),
+            "report": _make_stub_agent("report"),
+        },
+    )
+
+    seen_agents: list[str] = []
+
+    async def on_progress(mission: MissionState) -> None:
+        seen_agents.append(mission.current_agent)
+
+    mission = MissionState(
+        mission_id="m4", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+
+    result = await run_mission(mission, on_progress=on_progress)
+
+    assert result.status == "completed"
+    assert seen_agents == ["recon", "enum", "report"]

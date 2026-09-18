@@ -229,6 +229,10 @@ enforce_progression(state, proposed_next_phase) -> phase
     #   - si proposed_next_phase déjà dans completed_phases (et != "report") :
     #     force la première phase non terminée de l'ordre linéaire
     #   - si le LLM veut terminer sans être passé par "report" : force "report"
+    #   - si proposed_next_phase saute une phase intermediaire non terminee
+    #     (différent de la première phase non terminée ET différent de "report") :
+    #     force la première phase non terminée - régression réelle : exploit
+    #     avant enum prive exploit_agent des URLs qu'enum aurait découvertes
 
 is_target_in_allowed_ranges(host, allowed_ranges) -> bool
     # Garde-fou de périmètre optionnel (désactivé si allowed_ranges est vide,

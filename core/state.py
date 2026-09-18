@@ -207,6 +207,12 @@ def consolidate_denied_paths(candidate_paths: list[dict], discovered_by: str) ->
         evidence=paths_list,
         discovered_by=discovered_by,
         exploited=False,
+        remediation=(
+            "Confirmer que chaque chemin protege est volontairement restreint. "
+            "Si un chemin n'a pas vocation a etre expose publiquement, envisager "
+            "de le retirer de la surface accessible plutot que de compter sur le "
+            "controle d'acces seul."
+        ),
         tags=["consolidated", "access-denied"],
     )
 
@@ -219,6 +225,13 @@ def enforce_progression(state: MissionState, proposed_next_phase: str, max_cycle
     - une phase deja terminee (hors "report") est redirigee vers la premiere
       phase non terminee de l'ordre lineaire
     - toute tentative de terminer sans etre passe par "report" force "report"
+    - une suggestion (MissionState.last_decision) ne peut jamais sauter une
+      phase intermediaire non terminee : seule la phase suivante reelle, ou
+      un saut direct vers "report" (fin anticipee), est honore. Une phase
+      intermediaire sautee (ex. exploit avant enum) prive une phase en aval
+      de donnees dont elle depend reellement (exploit_agent s'appuie sur les
+      URLs decouvertes par enum via MissionState.scratch) - voir
+      docs/HISTORY.md pour l'incident qui a motive cette regle.
     """
     state.orchestration_cycles += 1
 
@@ -242,6 +255,9 @@ def enforce_progression(state: MissionState, proposed_next_phase: str, max_cycle
         return first_incomplete_phase()
 
     if proposed_next_phase != "report" and proposed_next_phase in state.completed_phases:
+        return first_incomplete_phase()
+
+    if proposed_next_phase != "report" and proposed_next_phase != first_incomplete_phase():
         return first_incomplete_phase()
 
     return proposed_next_phase
