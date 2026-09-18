@@ -25,9 +25,47 @@ docker compose up --build
 ```
 
 Le dashboard est servi sur `http://localhost:8000`. Au premier demarrage,
-`ollama-pull` telecharge automatiquement `qwen3.5:9b` (~5-6 Go) et le modele
+`ollama-pull` telecharge automatiquement `qwen3.5:9b` (~6.6 Go) et le modele
 d'embeddings `nomic-embed-text` (~0.27 Go) — cela peut prendre plusieurs
 minutes selon la connexion.
+
+## Choisir un modele selon la RAM disponible
+
+Le modele par defaut (`qwen3.5:9b`) utilise environ 7-8 Go de RAM a l'inference
+(confirme en deploiement reel), pas seulement le budget disque documente
+plus haut. Sur une machine avec peu de marge, changer `OLLAMA_MODEL_MAIN` dans
+`.env` avant le premier `docker compose up`, ou a chaud si le stack tourne deja :
+
+| RAM totale de la machine | Modele recommande | RAM approx. a l'inference |
+|---|---|---|
+| 8 Go | `qwen3.5:4b` | ~4-4.5 Go |
+| 12-16 Go | `qwen3.5:9b` (defaut) | ~7-8 Go |
+
+Voir `CLAUDE.md`, section 3, pour le tableau complet (fiabilite d'appel
+d'outils par modele) et `docs/HISTORY.md`, section 6, pour le retour de
+deploiement qui a motive cette recommandation.
+
+**Changer de modele sur un stack deja lance**, sans tout reconstruire :
+
+```bash
+# 1. couper le framework (interrompt une mission en cours, pas de reprise a chaud)
+docker compose stop framework
+
+# 2. mettre a jour .env
+sed -i 's/^OLLAMA_MODEL_MAIN=.*/OLLAMA_MODEL_MAIN=qwen3.5:4b/' .env
+
+# 3. tirer le nouveau modele dans le conteneur ollama deja en cours d'execution
+docker exec redteam-ai-framework-ollama-1 ollama pull qwen3.5:4b
+
+# 4. retirer l'ancien modele pour liberer l'espace disque (~6.6 Go pour qwen3.5:9b)
+docker exec redteam-ai-framework-ollama-1 ollama rm qwen3.5:9b
+
+# 5. recreer le framework pour qu'il prenne en compte la nouvelle variable
+docker compose up -d framework
+```
+
+(Adapter le nom du conteneur `redteam-ai-framework-ollama-1` s'il differe sur
+votre machine — verifiable avec `docker compose ps`.)
 
 ## Profils additionnels
 
