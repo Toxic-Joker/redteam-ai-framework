@@ -281,24 +281,55 @@ def test_nuclei_parses_jsonl_matches():
     assert match["matched_at"] == "http://10.0.0.1/admin"
 
 
-def test_dalfox_build_command_uses_scan_subcommand_and_headers_flag(monkeypatch):
+def test_dalfox_build_command_uses_scan_subcommand_and_cookies_flag(monkeypatch):
     tool = DalfoxTool()
     monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/dalfox")
     args = tool.build_command(url="http://10.0.0.1/?q=1", cookie="PHPSESSID=abc")
     assert args[1] == "scan"
     assert "-f" in args and "jsonl" in args
-    assert "--headers" in args
-    assert "Cookie: PHPSESSID=abc" in args
-    assert "--cookie" not in args  # dalfox n'a pas de flag cookie dedie
+    assert "--cookies" in args
+    assert "PHPSESSID=abc" in args
+    assert "--headers" not in args  # appartenait a l'ancienne CLI Go, perimee
 
 
-def test_dalfox_parses_jsonl_findings_as_vulnerable():
+def test_dalfox_flags_verified_type_as_vulnerable():
     tool = DalfoxTool()
-    stdout = json.dumps({"type": "reflected", "param": "q", "payload": "<script>alert(1)</script>", "severity": "High"})
+    stdout = json.dumps({"type": "V", "param": "q", "payload": "<script>alert(1)</script>", "severity": "High"})
     result = ToolResult(tool="dalfox", command=[], returncode=0, stdout=stdout, stderr="", success=True)
     parsed = tool.parse_output(result)
     assert parsed["vulnerable"] is True
     assert parsed["findings"][0]["param"] == "q"
+
+
+def test_dalfox_does_not_flag_reflected_type_as_vulnerable():
+    """Regression directe : dalfox documente "R" (Reflected) comme "not a
+
+    vulnerability assertion" - un deploiement reel a pourtant produit un
+    CRITICAL fabrique parce que toute ligne JSON parsee etait traitee comme
+    une confirmation, quel que soit son "type". Voir docs/HISTORY.md.
+    """
+    tool = DalfoxTool()
+    stdout = json.dumps({"type": "R", "param": "q", "payload": "<script>alert(1)</script>", "severity": "High"})
+    result = ToolResult(tool="dalfox", command=[], returncode=0, stdout=stdout, stderr="", success=True)
+    parsed = tool.parse_output(result)
+    assert parsed["vulnerable"] is False
+    assert parsed["findings"] == []
+    assert len(parsed["reflected"]) == 1
+
+
+def test_dalfox_ignores_informational_and_ast_detected_types():
+    tool = DalfoxTool()
+    stdout = "\n".join(
+        [
+            json.dumps({"type": "I", "param": "", "payload": ""}),
+            json.dumps({"type": "A", "param": "q", "payload": ""}),
+        ]
+    )
+    result = ToolResult(tool="dalfox", command=[], returncode=0, stdout=stdout, stderr="", success=True)
+    parsed = tool.parse_output(result)
+    assert parsed["vulnerable"] is False
+    assert parsed["findings"] == []
+    assert parsed["reflected"] == []
 
 
 def test_dalfox_no_output_means_not_vulnerable():
