@@ -111,6 +111,13 @@ class Target:
     services: dict[int, str] = field(default_factory=dict)
     os_guess: Optional[str] = None
     os_confidence: Optional[float] = None
+    # Cookie de session fourni par l'operateur (ex. "PHPSESSID=...; security=low"
+    # pour DVWA), obtenu manuellement via un navigateur. Permet aux outils web
+    # (gobuster, ffuf, nikto, sqlmap) d'atteindre les pages protegees par
+    # authentification. Jamais affiche en clair dans le rapport (voir
+    # report_agent.py) ; jamais devine ni automatise par le framework -
+    # chaque application gere son propre flux de connexion differemment.
+    session_cookie: Optional[str] = None
 
 
 @dataclass

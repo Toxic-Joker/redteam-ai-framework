@@ -462,6 +462,7 @@ header {
                 </div>
               </div>
               <div class="form-group"><div class="form-label">OS (haute confiance uniquement)</div><div style="color:var(--text);font-size:13px;" x-text="selectedMission.target?.os_guess || 'Inconnu'"></div></div>
+              <div class="form-group"><div class="form-label">Session authentifiee</div><div style="color:var(--text);font-size:13px;" x-text="selectedMission.target?.authenticated ? 'Oui' : 'Non'"></div></div>
             </div>
           </div>
           <div class="panel" style="margin-top:8px;">
@@ -512,6 +513,11 @@ header {
           <div class="form-group"><label class="form-label">Cible (host, toujours externe)</label><input class="form-input" x-model="newMission.target_host" placeholder="192.168.1.100"></div>
           <div class="form-group"><label class="form-label">Operateur</label><input class="form-input" x-model="newMission.operator" placeholder="operateur"></div>
           <div class="form-group"><label class="form-label">Reference d'autorisation</label><input class="form-input" x-model="newMission.authorization_ref" placeholder="AUTH-2026-001"></div>
+          <div class="form-group">
+            <label class="form-label">Cookie de session (optionnel)</label>
+            <input class="form-input" x-model="newMission.session_cookie" placeholder="PHPSESSID=...; security=low">
+            <div style="font-size:10px;color:var(--text-lo);margin-top:4px;">Pour atteindre les pages protegees par authentification (ex. DVWA) : se connecter une fois via un navigateur et coller le cookie obtenu. Jamais devine ni automatise par le framework.</div>
+          </div>
           <button class="btn btn-primary" style="width:100%;justify-content:center;" @click="createMission()" :disabled="creating">
             <span x-show="creating" class="spinner"></span>
             <span x-text="creating ? 'LANCEMENT...' : '+ LANCER LA MISSION'"></span>
@@ -544,7 +550,7 @@ function dashboard() {
     creating: false,
     _lastSeen: {},
 
-    newMission: { mission_name: '', target_host: '', operator: 'operator', authorization_ref: '' },
+    newMission: { mission_name: '', target_host: '', operator: 'operator', authorization_ref: '', session_cookie: '' },
 
     phases: [
       { key: 'recon',       label: 'RECON'   },
@@ -678,7 +684,7 @@ function dashboard() {
         }
         const mission = await r.json();
         this.addLog('success', `Mission creee et lancee : ${mission.mission_id.substring(0,8)}`);
-        this.newMission = { mission_name: '', target_host: '', operator: this.newMission.operator, authorization_ref: '' };
+        this.newMission = { mission_name: '', target_host: '', operator: this.newMission.operator, authorization_ref: '', session_cookie: '' };
         await this.loadMissions();
         await this.selectMission(mission.mission_id);
       } catch (e) {

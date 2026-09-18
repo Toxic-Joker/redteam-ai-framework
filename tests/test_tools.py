@@ -85,6 +85,35 @@ def test_gobuster_parses_status_codes():
     assert {"path": "/index.html", "status_code": 200} in parsed["paths"]
 
 
+def test_gobuster_includes_cookie_flag_when_provided(monkeypatch, tmp_path):
+    tool = GobusterTool()
+    monkeypatch.setattr(tool, "binary_path", lambda: "/usr/bin/gobuster")
+    wordlist = tmp_path / "common.txt"
+    wordlist.write_text("admin\n")
+    args = tool.build_command(target="http://10.0.0.1", wordlist=str(wordlist), cookie="PHPSESSID=abc")
+    assert "-c" in args
+    assert "PHPSESSID=abc" in args
+
+
+def test_gobuster_omits_cookie_flag_when_absent(monkeypatch, tmp_path):
+    tool = GobusterTool()
+    monkeypatch.setattr(tool, "binary_path", lambda: "/usr/bin/gobuster")
+    wordlist = tmp_path / "common.txt"
+    wordlist.write_text("admin\n")
+    args = tool.build_command(target="http://10.0.0.1", wordlist=str(wordlist))
+    assert "-c" not in args
+
+
+def test_ffuf_includes_cookie_flag_when_provided(monkeypatch, tmp_path):
+    tool = FfufTool()
+    monkeypatch.setattr(tool, "binary_path", lambda: "/usr/bin/ffuf")
+    wordlist = tmp_path / "common.txt"
+    wordlist.write_text("admin\n")
+    args = tool.build_command(target="http://10.0.0.1", wordlist=str(wordlist), cookie="PHPSESSID=abc")
+    assert "-b" in args
+    assert "PHPSESSID=abc" in args
+
+
 def test_nikto_build_command_includes_ssl_flag_when_requested(monkeypatch):
     tool = NiktoTool()
     monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/nikto")
@@ -93,11 +122,34 @@ def test_nikto_build_command_includes_ssl_flag_when_requested(monkeypatch):
     assert "10.0.0.1" in args
 
 
+def test_nikto_includes_cookie_header_when_provided(monkeypatch):
+    tool = NiktoTool()
+    monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/nikto")
+    args = tool.build_command(target="10.0.0.1", port=80, cookie="PHPSESSID=abc; security=low")
+    assert "-Header" in args
+    assert "Cookie: PHPSESSID=abc; security=low" in args
+
+
 def test_sqlmap_build_command_is_batch_by_default(monkeypatch):
     tool = SqlmapTool()
     monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/sqlmap")
     args = tool.build_command(url="http://10.0.0.1/?id=1")
     assert "--batch" in args
+
+
+def test_sqlmap_includes_cookie_flag_when_provided(monkeypatch):
+    tool = SqlmapTool()
+    monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/sqlmap")
+    args = tool.build_command(url="http://10.0.0.1/?id=1", cookie="PHPSESSID=abc; security=low")
+    assert "--cookie" in args
+    assert "PHPSESSID=abc; security=low" in args
+
+
+def test_sqlmap_omits_cookie_flag_when_absent(monkeypatch):
+    tool = SqlmapTool()
+    monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/sqlmap")
+    args = tool.build_command(url="http://10.0.0.1/?id=1")
+    assert "--cookie" not in args
 
 
 def test_sqlmap_does_not_flag_negative_result_as_vulnerable():

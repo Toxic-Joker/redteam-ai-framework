@@ -36,6 +36,13 @@ class MissionCreateRequest(BaseModel):
     operator: str
     target_host: str = Field(..., description="Cible externe, jamais embarquee dans le deploiement")
     authorization_ref: str | None = None
+    session_cookie: str | None = Field(
+        default=None,
+        description=(
+            "Cookie de session obtenu manuellement (ex. via un navigateur) pour atteindre les "
+            "pages protegees par authentification. Jamais automatise ni devine par le framework."
+        ),
+    )
 
 
 @router.post("")
@@ -56,7 +63,7 @@ async def create_mission(payload: MissionCreateRequest):
         mission_name=payload.mission_name,
         operator=payload.operator,
         authorization_ref=payload.authorization_ref,
-        target=Target(host=payload.target_host),
+        target=Target(host=payload.target_host, session_cookie=payload.session_cookie),
     )
     mission.status = "running"
 
@@ -167,6 +174,9 @@ def _mission_summary(mission: MissionState) -> dict:
             "services": mission.target.services,
             "os_guess": mission.target.os_guess,
             "os_confidence": mission.target.os_confidence,
+            # Jamais le cookie en clair dans une reponse API/rapport : seulement
+            # si une session authentifiee a ete fournie pour cette mission.
+            "authenticated": bool(mission.target.session_cookie),
         },
         "findings": [
             {

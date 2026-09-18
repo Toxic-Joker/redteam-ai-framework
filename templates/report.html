@@ -237,6 +237,7 @@
   <tr><td>Cible</td><td>{{ mission.target.host }}</td></tr>
   <tr><td>OS detecte (confiance elevee uniquement)</td><td>{{ mission.target.os_guess or 'Non determine' }}</td></tr>
   <tr><td>Ports ouverts</td><td>{{ mission.target.ports or 'Aucun' }}</td></tr>
+  <tr><td>Session authentifiee</td><td>{{ 'Oui' if mission.target.session_cookie else 'Non' }}</td></tr>
   <tr><td>Phases completees</td><td>{{ mission.completed_phases|join(', ') }}</td></tr>
   <tr><td>Cycles d'orchestration</td><td>{{ mission.orchestration_cycles }}</td></tr>
   <tr><td>Outils executes</td><td>{{ mission.tool_results|length }}</td></tr>

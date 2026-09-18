@@ -17,12 +17,15 @@ class SqlmapTool(BaseTool):
         batch: bool = True,
         level: int = 1,
         risk: int = 1,
+        cookie: Optional[str] = None,
         **kwargs: Any,
     ) -> list[str]:
         binary = self.binary_path()
         args = [binary, "-u", url, "--level", str(level), "--risk", str(risk)]
         if data:
             args += ["--data", data]
+        if cookie:
+            args += ["--cookie", cookie]
         if batch:
             args.append("--batch")
         args += ["--output-dir", "/tmp/sqlmap-output"]
