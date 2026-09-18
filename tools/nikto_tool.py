@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from core.config import get_settings
+
 from .base import BaseTool, ToolResult
 
 
@@ -14,7 +16,15 @@ class NiktoTool(BaseTool):
         self, target: str, port: int = 80, ssl: bool = False, cookie: Optional[str] = None, **kwargs: Any
     ) -> list[str]:
         binary = self.binary_path()
-        args = [binary, "-h", target, "-p", str(port), "-Format", "txt", "-output", "-"]
+        settings = get_settings()
+        # -maxtime est un flag reel de nikto (GetOptions: "maxtime=s"), pense
+        # pour ce cas exact : bornes le pire cas d'un site lent/verbeux sans
+        # changer ce que nikto trouve sur une cible normale (voir
+        # docs/HISTORY.md, section 18).
+        args = [
+            binary, "-h", target, "-p", str(port), "-Format", "txt", "-output", "-",
+            "-maxtime", settings.nikto_max_time,
+        ]
         if ssl:
             args.append("-ssl")
         if cookie:

@@ -6,6 +6,8 @@ systematiquement les 401/403 (critere de validation MVP : 22 chemins en
 """
 from __future__ import annotations
 
+import asyncio
+
 from core.state import Finding, Lead, MissionState, Severity, consolidate_denied_paths
 from tools.crawler_tool import CrawlerTool
 from tools.ffuf_tool import FfufTool
@@ -67,10 +69,21 @@ class EnumAgent(BaseAgent):
             base_url = f"{scheme}://{host}:{port}"
             base_urls.append(base_url)
 
-            gob_result = await self.gobuster.run(target=base_url, cookie=cookie)
+            # Les 5 outils de cette phase sont independants les uns des
+            # autres (aucun ne consomme la sortie d'un autre) : les lancer en
+            # parallele plutot qu'en sequence est la principale reduction de
+            # temps de mission possible sans perdre en couverture (voir
+            # docs/HISTORY.md, section 18). asyncio.gather() preserve l'ordre
+            # des resultats selon l'ordre des awaitables, pas selon l'ordre
+            # de fin - le traitement ci-dessous reste deterministe.
+            gob_result, ffuf_result, nikto_result, crawl_result, nuclei_result = await asyncio.gather(
+                self.gobuster.run(target=base_url, cookie=cookie),
+                self.ffuf.run(target=base_url, cookie=cookie),
+                self.nikto.run(target=host, port=port, ssl=is_ssl, cookie=cookie),
+                self.crawler.crawl(base_url, cookie=cookie),
+                self.nuclei.run(target=base_url, cookie=cookie),
+            )
             state.tool_results.append({"agent": self.name, "tool": "gobuster", "result": gob_result.parsed})
-
-            ffuf_result = await self.ffuf.run(target=base_url, cookie=cookie)
             state.tool_results.append({"agent": self.name, "tool": "ffuf", "result": ffuf_result.parsed})
 
             all_paths = gob_result.parsed.get("paths", []) + ffuf_result.parsed.get("paths", [])
@@ -100,7 +113,6 @@ class EnumAgent(BaseAgent):
                     )
                 )
 
-            nikto_result = await self.nikto.run(target=host, port=port, ssl=is_ssl, cookie=cookie)
             state.tool_results.append({"agent": self.name, "tool": "nikto", "result": nikto_result.parsed})
             items = nikto_result.parsed.get("items", [])
             if items:
@@ -129,7 +141,6 @@ class EnumAgent(BaseAgent):
             # attend reellement. Les formulaires GET sont synthetises en
             # URL avec parametres (reutilisent le meme pipeline) ; les
             # formulaires POST sont gardes a part pour sqlmap --data.
-            crawl_result = await self.crawler.crawl(base_url, cookie=cookie)
             state.tool_results.append(
                 {
                     "agent": self.name,
@@ -147,7 +158,6 @@ class EnumAgent(BaseAgent):
             # Couverture large de motifs connus (identifiants par defaut,
             # panels exposes, CVE courantes) via des templates communautaires
             # - complement aux outils cibles, pas un remplacement de sqlmap.
-            nuclei_result = await self.nuclei.run(target=base_url, cookie=cookie)
             state.tool_results.append({"agent": self.name, "tool": "nuclei", "result": nuclei_result.parsed})
             for match in nuclei_result.parsed.get("matches", []):
                 severity = NUCLEI_SEVERITY_MAP.get(match.get("severity", "info"), Severity.INFO)

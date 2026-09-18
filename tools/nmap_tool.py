@@ -27,11 +27,18 @@ class NmapTool(BaseTool):
         # et le scan de ports est saute entierement (incident #8).
         base = [binary, "-Pn"]
 
+        # -T4 et --min-rate accelerent le balayage sans jamais reduire sa
+        # portee (toujours -p- : critere de validation MVP sur un port non
+        # standard, section 11 de CLAUDE.md) - un compromis de vitesse
+        # reseau, pas de couverture. Absents du mode discovery (-sn), deja
+        # quasi instantane.
+        speed = ["-T4", "--min-rate", "1000"]
+
         if mode == "discovery":
             return base + ["-sn", target]
         if mode == "vuln":
-            return base + [scan_flag, "--script=vuln", "-oX", "-", target]
-        return base + [scan_flag, "-sV", "-p-", "-oX", "-", target]
+            return base + [scan_flag, *speed, "--script=vuln", "-oX", "-", target]
+        return base + [scan_flag, *speed, "-sV", "-p-", "-oX", "-", target]
 
     def parse_output(self, result: ToolResult) -> dict[str, Any]:
         open_ports: list[dict[str, Any]] = []

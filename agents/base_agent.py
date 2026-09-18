@@ -35,6 +35,15 @@ class BaseAgent(ABC):
             base_url=settings.ollama_base_url,
             model=settings.ollama_model_main,
             temperature=0.1,
+            # Chaque prompt de ce fichier demande explicitement un JSON court
+            # (quelques phrases, quelques listes courtes) : un plafond de
+            # generation borne le pire cas sur un modele local CPU-only sans
+            # jamais couper une reponse utile en pratique. client_kwargs est
+            # transmis tel quel au client ollama (lui-meme base sur httpx),
+            # qui accepte "timeout" - sans ca, un appel bloque peut geler une
+            # phase entiere indefiniment (voir docs/HISTORY.md, section 18).
+            num_predict=settings.llm_num_predict,
+            client_kwargs={"timeout": settings.llm_timeout_seconds},
         )
 
     async def ask_llm(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:

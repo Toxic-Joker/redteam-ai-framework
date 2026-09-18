@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     max_cycles: int = 10
     log_level: str = "INFO"
 
+    # Bornes de performance : aucune ne change ce qu'un outil trouve, seulement
+    # combien de temps une mission met a le trouver (voir docs/HISTORY.md,
+    # section 18, pour le detail de chaque decision).
+    llm_num_predict: int = 512  # cap la longueur de generation, jamais la sortie attendue (JSON court)
+    llm_timeout_seconds: int = 180  # borne un appel Ollama bloque, plutot qu'une attente indefinie
+    nikto_max_time: str = "180s"  # -maxtime de nikto lui-meme ; pire cas borne, pas une moyenne
+    exploit_max_concurrent_urls: int = 5  # parallelisme borne entre URLs candidates, pas de rafale illimitee
+
     reports_dir: str = "reports"
     db_dir: str = "db"
 
