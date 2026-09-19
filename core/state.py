@@ -30,6 +30,23 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _redact(text: str, secret: Optional[str]) -> str:
+    """Retire toute occurrence litterale d'un secret (ex. cookie de session)
+
+    d'un texte libre avant stockage. Defense en profondeur : nuclei redige
+    deja lui-meme son propre champ curl-command (verifie dans son code
+    source), mais sqlmap/dalfox/commix/nikto n'offrent aucune garantie
+    equivalente sur leur sortie brute - rien n'empeche structurellement un
+    mode verbeux/une erreur de ces outils d'echoer le cookie envoye dans un
+    texte qui finit dans evidence/description (voir docs/HISTORY.md,
+    section 20). Ne remplace pas la discipline de ne jamais transmettre le
+    cookie brut via l'API/le rapport (deja le cas ailleurs), s'ajoute a elle.
+    """
+    if not secret or not text:
+        return text
+    return text.replace(secret, "***")
+
+
 def _dedup_key_text(value: str) -> str:
     """Normalise pour la comparaison de doublons : espaces, casse, barre
 
@@ -160,6 +177,11 @@ class MissionState:
         # (nikto, gobuster, ...) peut resignaler la meme chose deux fois dans
         # une mission, ce qui produirait sinon des findings litteralement
         # dupliques dans le rapport.
+        cookie = self.target.session_cookie
+        finding.evidence = _redact(finding.evidence, cookie)
+        finding.description = _redact(finding.description, cookie)
+        finding.affected_component = _redact(finding.affected_component, cookie)
+
         key = (_dedup_key_text(finding.title), _dedup_key_text(finding.affected_component), finding.severity)
         for existing in self.findings:
             existing_key = (
@@ -173,6 +195,8 @@ class MissionState:
         self.updated_at = _now()
 
     def add_lead(self, lead: Lead) -> None:
+        lead.rationale = _redact(lead.rationale, self.target.session_cookie)
+
         # Meme logique de dedoublonnage que add_finding, sur (titre, source).
         key = (_dedup_key_text(lead.title), lead.source)
         for existing in self.leads:

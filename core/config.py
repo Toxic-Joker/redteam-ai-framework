@@ -20,6 +20,13 @@ class Settings(BaseSettings):
 
     require_authorization: bool = True
 
+    # Cle partagee protegeant l'API/dashboard (en-tete X-API-Key). Vide par
+    # defaut pour ne pas casser un deploiement existant au premier pull, mais
+    # laisse alors l'API entierement ouverte a quiconque atteint le port 8000
+    # (voir docs/HISTORY.md, section 20) - a definir avant toute exposition
+    # au-dela de la machine de l'operateur.
+    api_key: str = ""
+
     # CIDR separes par des virgules (ex. "10.0.0.0/8,192.168.0.0/16"). Vide
     # par defaut = aucune restriction (voir core/state.py::is_target_in_allowed_ranges
     # pour pourquoi ce n'est pas restreint aux plages privees par defaut).
