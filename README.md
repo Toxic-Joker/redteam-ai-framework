@@ -1,5 +1,6 @@
 # RedTeam AI Framework
 
+![Tests](https://github.com/Toxic-Joker/redteam-ai-framework/actions/workflows/tests.yml/badge.svg)
 ![Python 3.11](https://img.shields.io/badge/python-3.11-blue)
 ![Docker](https://img.shields.io/badge/docker-compose-2496ED)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
