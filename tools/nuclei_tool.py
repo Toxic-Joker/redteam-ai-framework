@@ -1,16 +1,15 @@
-"""nuclei : templates communautaires pour une couverture large de problemes
+"""nuclei: community templates for broad coverage of known issues
 
-connus (identifiants par defaut, panels exposes, en-tetes de securite,
-CVE courantes), chaque correspondance portant sa propre preuve
-(commande curl de reproduction). Complement aux outils cibles (sqlmap),
-pas un remplacement : nuclei detecte des motifs, il ne confirme jamais une
-exploitation - cap_severity s'applique donc systematiquement cote agent,
-comme pour tout autre outil.
+(default credentials, exposed panels, security headers, common CVEs), each
+match carrying its own evidence (a reproduction curl command). A complement
+to the targeted tools (sqlmap), not a replacement: nuclei detects patterns,
+it never confirms exploitation - cap_severity therefore still applies
+systematically on the agent side, like for any other tool.
 
-Flags confirmes via la documentation officielle avant ecriture (voir
-CLAUDE.md, section 2, sur la verification du nommage/CLI reel des outils) :
--jsonl pour la sortie JSON Lines sur stdout, -H pour un en-tete personnalise
-(pas de flag cookie dedie, contrairement a gobuster/ffuf/sqlmap).
+Flags confirmed via the official documentation before writing (see
+CLAUDE.md, section 2, on verifying a tool's real naming/CLI): -jsonl for
+JSON Lines output on stdout, -H for a custom header (no dedicated cookie
+flag, unlike gobuster/ffuf/sqlmap).
 """
 from __future__ import annotations
 

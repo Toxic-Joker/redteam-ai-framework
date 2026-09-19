@@ -1,7 +1,7 @@
-"""API_KEY vide par defaut (ne casse pas un deploiement existant), mais des
+"""API_KEY is empty by default (doesn't break an existing deployment), but
 
-qu'elle est definie, toute route /api/* doit l'exiger - directement lie a
-l'audit de securite du framework lui-meme (docs/HISTORY.md, section 20).
+as soon as it's set, every /api/* route must require it - directly tied to
+the security audit of the framework itself (docs/HISTORY.md, section 20).
 """
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -45,9 +45,9 @@ async def test_api_accepts_correct_header_key(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_api_accepts_correct_query_param_key(monkeypatch):
-    # Repli pour le lien de telechargement direct <a href> (voir
-    # api/dependencies.py) : une navigation classique ne peut pas poser
-    # d'en-tete personnalise.
+    # Fallback for the direct <a href> download link (see
+    # api/dependencies.py): a plain navigation can't set a custom
+    # header.
     monkeypatch.setattr(get_settings(), "api_key", "s3cr3t")
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)

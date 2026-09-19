@@ -1,14 +1,14 @@
-"""commix : injection de commandes systeme, architecture et CLI directement
+"""commix: OS command injection, architecture and CLI directly inspired by
 
-inspirees de sqlmap (memes auteurs de conventions) - confirme via le code
-source (`src/core/parse/cmdline.py`, `src/core/controller/checks.py`)
-avant ecriture, pas suppose par analogie :
-- flags : -u/--url, --batch, --cookie, --data (identiques a sqlmap)
-- signal positif : la phrase exacte "is vulnerable" (vulnerable_message()) ;
-  le cas negatif utilise explicitement "false positive"/"unexploitable",
-  jamais "is vulnerable" - meme piege evite qu'avec le correctif sqlmap
-  (docs/HISTORY.md section 6) : ne jamais combiner des mots-cles
-  independants presents n'importe ou dans la sortie.
+sqlmap (same convention authors) - confirmed via the source code
+(`src/core/parse/cmdline.py`, `src/core/controller/checks.py`) before
+writing, not assumed by analogy:
+- flags: -u/--url, --batch, --cookie, --data (identical to sqlmap)
+- positive signal: the exact phrase "is vulnerable" (vulnerable_message());
+  the negative case explicitly uses "false positive"/"unexploitable",
+  never "is vulnerable" - the same pitfall as the sqlmap fix
+  (docs/HISTORY.md section 6) avoided from the start: never combine
+  independent keywords present anywhere in the output.
 """
 from __future__ import annotations
 
@@ -35,11 +35,10 @@ class CommixTool(BaseTool):
         return args
 
     def is_success(self, returncode: int) -> bool:
-        # Non verifie independamment (pas de source consultee sur les codes
-        # de sortie precis de commix), mais son architecture reprend
-        # deliberement celle de sqlmap - meme hypothese appliquee par
-        # prudence : un resultat negatif propre ne doit pas etre traite
-        # comme un echec d'execution.
+        # Not independently verified (no source consulted on commix's
+        # exact exit codes), but its architecture deliberately mirrors
+        # sqlmap's - the same assumption applied out of caution: a clean
+        # negative result must not be treated as an execution failure.
         return returncode in (0, 1)
 
     def parse_output(self, result: ToolResult) -> dict[str, Any]:

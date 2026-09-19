@@ -1,7 +1,7 @@
-"""Priorite : les garde-fous anti-boucle doivent exister des la construction
+"""Priority: the anti-loop guardrails must exist from when the graph is
 
-du graphe, pas etre verifies uniquement en execution reelle (qui necessite
-Ollama + les binaires d'outils, hors de portee des tests unitaires).
+first built, not only be checked in a real run (which needs Ollama + the
+tool binaries, out of scope for unit tests).
 """
 import pytest
 
@@ -58,11 +58,12 @@ async def test_run_mission_calls_on_progress_once_per_phase(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_mission_rejects_a_forward_skip_suggestion(monkeypatch):
-    """Regression directe d'un incident reel : recon avait suggere de sauter
+    """Direct regression test for a real incident: recon had suggested
 
-    directement a exploit, privant exploit_agent des URLs qu'enum aurait
-    decouvertes via MissionState.scratch (moins de cibles testees). L'ordre
-    lineaire doit rester intact meme si une suggestion tente de le rompre.
+    skipping straight to exploit, depriving exploit_agent of the URLs enum
+    would have discovered via MissionState.scratch (fewer targets tested).
+    The linear order must stay intact even if a suggestion tries to break
+    it.
     """
     monkeypatch.setattr(
         orchestrator_module,
@@ -93,9 +94,9 @@ async def test_run_mission_rejects_a_forward_skip_suggestion(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_mission_honors_an_early_report_suggestion(monkeypatch):
-    """Le seul saut qui reste autorise : enum suggere de conclure
+    """The only skip that remains allowed: enum suggests concluding
 
-    directement en "report", puisque rien en aval ne depend de son resultat.
+    directly with "report", since nothing downstream depends on its result.
     """
     monkeypatch.setattr(
         orchestrator_module,

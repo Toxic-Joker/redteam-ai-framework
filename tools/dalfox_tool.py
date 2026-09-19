@@ -1,26 +1,26 @@
-"""dalfox : scanner XSS dedie.
+"""dalfox: dedicated XSS scanner.
 
-Bug reel corrige ici (voir docs/HISTORY.md) : la premiere version de ce
-fichier supposait que "toute ligne JSON parsee = vulnerabilite confirmee",
-base sur une documentation generique perimee. dalfox a ete entierement
-reecrit en Rust (le depot est "Rust", pas Go) et son champ JSON "type" est
-un enum a quatre valeurs, confirme en lisant le code source
-(`src/scanning/result/mod.rs`) plutot que suppose :
-  - "V" (Verified)      : seule valeur representant une vulnerabilite
-                           confirmee exploitable.
-  - "R" (Reflected)      : payload reflete dans la reponse, position non
-                           confirmee exploitable - documente explicitement
-                           comme "not a vulnerability assertion".
-  - "A" (AstDetected)    : detection XSS DOM par analyse statique JS, une
-                           etiquette de methode, pas une confirmation.
-  - "I" (Informational)  : observation non-exploitable (ex. bibliotheque
-                           obsolete), pas un finding XSS.
-Traiter "R"/"A"/"I" comme confirmes aurait produit exactement le meme genre
-de faux positif que l'ancien bug sqlmap (docs/HISTORY.md, section 6) - et
-l'a effectivement produit lors d'un deploiement reel avant ce correctif.
+A real bug fixed here (see docs/HISTORY.md): this file's first version
+assumed "any parsed JSON line = confirmed vulnerability", based on outdated
+generic documentation. dalfox has been entirely rewritten in Rust (the repo
+is "Rust", not Go) and its JSON "type" field is a four-value enum,
+confirmed by reading the source code (`src/scanning/result/mod.rs`) rather
+than assumed:
+  - "V" (Verified)     : the only value representing a confirmed,
+                          exploitable vulnerability.
+  - "R" (Reflected)     : a payload reflected in the response, position not
+                          confirmed exploitable - explicitly documented as
+                          "not a vulnerability assertion".
+  - "A" (AstDetected)   : DOM XSS detection via static JS analysis, a
+                          method label, not a confirmation.
+  - "I" (Informational) : a non-exploitable observation (e.g. an outdated
+                          library), not an XSS finding.
+Treating "R"/"A"/"I" as confirmed would have produced exactly the same kind
+of false positive as the old sqlmap bug (docs/HISTORY.md, section 6) - and
+actually did produce one in a real deployment before this fix.
 
-Flag cookie dedie confirme via la reference CLI du depot : `--cookies`, pas
-`--headers "Cookie: ..."` (qui appartenait a l'ancienne CLI Go, perimee).
+Dedicated cookie flag confirmed via the repo's CLI reference: `--cookies`,
+not `--headers "Cookie: ..."` (which belonged to the old, outdated Go CLI).
 """
 from __future__ import annotations
 
@@ -67,6 +67,6 @@ class DalfoxTool(BaseTool):
                 verified.append(entry)
             elif finding_type == REFLECTED_TYPE:
                 reflected.append(entry)
-            # "A" et "I" : ni une confirmation ni un signal de reflexion
-            # exploitable pour ce projet - ignores.
+            # "A" and "I": neither a confirmation nor an actionable
+            # reflection signal for this project - ignored.
         return {"vulnerable": bool(verified), "findings": verified, "reflected": reflected}

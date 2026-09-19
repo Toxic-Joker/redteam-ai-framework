@@ -1,11 +1,11 @@
-"""Routes REST des missions.
+"""REST mission routes.
 
-REQUIRE_AUTHORIZATION bloque toute mission sans authorization_ref (contrat de
-MissionState, section 6 de CLAUDE.md). L'execution reelle tourne dans une
-asyncio.Task suivie dans _running_tasks (pas BackgroundTasks, qui ne fournit
-aucun moyen d'annuler une mission en cours - voir docs/HISTORY.md section 6).
-Le statut/risque exposes viennent toujours du coeur deterministe, jamais
-d'une reformulation par le LLM.
+REQUIRE_AUTHORIZATION blocks any mission without authorization_ref
+(MissionState contract, CLAUDE.md section 6). The actual execution runs in
+an asyncio.Task tracked in _running_tasks (not BackgroundTasks, which gives
+no way to cancel a running mission - see docs/HISTORY.md section 6). The
+exposed status/risk always come from the deterministic core, never from an
+LLM rewording.
 """
 from __future__ import annotations
 
@@ -25,9 +25,9 @@ from core.state import MissionState, Target, compute_overall_risk, is_target_in_
 
 router = APIRouter()
 
-# Une mission en cours doit pouvoir etre annulee depuis l'API (POST .../abort).
-# BackgroundTasks ne donne aucune prise sur la tache une fois lancee ; on
-# garde donc le handle asyncio.Task ici, purge des qu'une mission se termine.
+# A running mission must be cancellable from the API (POST .../abort).
+# BackgroundTasks gives no handle on the task once launched; so the
+# asyncio.Task handle is kept here, purged as soon as a mission finishes.
 _running_tasks: dict[str, asyncio.Task] = {}
 
 
@@ -93,7 +93,7 @@ async def _execute_mission(mission_id: str) -> None:
     except asyncio.CancelledError:
         mission.status = "aborted"
         mission.errors.append({"agent": "orchestrator", "message": "Mission interrompue par l'operateur"})
-    except Exception as exc:  # noqa: BLE001 - une mission ne doit jamais planter silencieusement l'API
+    except Exception as exc:  # noqa: BLE001 - a mission must never crash the API silently
         mission.errors.append({"agent": "orchestrator", "message": str(exc)})
         mission.status = "failed"
     finally:
@@ -174,8 +174,8 @@ def _mission_summary(mission: MissionState) -> dict:
             "services": mission.target.services,
             "os_guess": mission.target.os_guess,
             "os_confidence": mission.target.os_confidence,
-            # Jamais le cookie en clair dans une reponse API/rapport : seulement
-            # si une session authentifiee a ete fournie pour cette mission.
+            # Never the raw cookie in an API response/report: only whether
+            # an authenticated session was supplied for this mission.
             "authenticated": bool(mission.target.session_cookie),
         },
         "findings": [

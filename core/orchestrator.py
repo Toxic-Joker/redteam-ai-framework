@@ -1,21 +1,21 @@
-"""Orchestrateur LangGraph : garde-fous anti-boucle presents des le premier
+"""LangGraph orchestrator: anti-loop guardrails present from the graph's
 
-commit du graphe (limite de cycles, suivi des phases terminees), pas ajoutes
-apres avoir observe une boucle infinie en production.
+very first commit (cycle limit, completed-phase tracking), not added after
+observing an infinite loop in production.
 
-Le LLM peut influencer la prochaine phase (MissionState.last_decision, lu
-depuis le meme appel de resume que chaque agent fait deja en fin de phase -
-aucun appel d'inference supplementaire), mais n'a jamais le dernier mot :
-enforce_progression() reste seul juge final et peut ignorer, corriger ou
-annuler toute suggestion (phase invalide, deja terminee, tentative de finir
-sans etre passe par "report", ou saut par-dessus une phase intermediaire non
-terminee). Ce dernier point n'est pas theorique : une suggestion recon ->
-exploit a reellement saute "enum" lors d'un deploiement, privant exploit de
-donnees dont il depend (state.scratch["enum"]["candidate_urls"]) et reduisant
-le nombre de cibles testees. Seuls deux resultats sont donc possibles : la
-phase suivante reelle de l'ordre lineaire, ou un saut direct vers "report"
-(fin anticipee, jamais problematique puisque rien en aval n'en depend). Borne
-par MAX_CYCLES dans tous les cas. Voir docs/HISTORY.md.
+The LLM can influence the next phase (MissionState.last_decision, read from
+the same summary call each agent already makes at the end of its phase - no
+extra inference call), but never has the final word:
+enforce_progression() remains the sole final judge and can ignore, correct,
+or cancel any suggestion (invalid phase, already completed, an attempt to
+finish without going through "report", or a skip over an incomplete
+intermediate phase). This last point isn't theoretical: a recon -> exploit
+suggestion actually skipped "enum" during a real deployment, depriving
+exploit of data it depends on (state.scratch["enum"]["candidate_urls"]) and
+reducing the number of targets tested. So only two outcomes are possible:
+the real next phase in the linear order, or a direct skip to "report"
+(early completion, never problematic since nothing downstream depends on
+it). Bounded by MAX_CYCLES in all cases. See docs/HISTORY.md.
 """
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def _make_node(phase: str):
         mission = state["mission"]
         try:
             mission = await agent.run(mission)
-        except Exception as exc:  # noqa: BLE001 - une mission ne s'arrete jamais sur une exception d'agent
+        except Exception as exc:  # noqa: BLE001 - a mission never stops on an agent exception
             mission.errors.append({"agent": phase, "message": str(exc)})
             if phase not in mission.completed_phases:
                 mission.completed_phases.append(phase)
@@ -69,10 +69,10 @@ def _route(state: GraphState) -> str:
 
     remaining = [p for p in PHASE_ORDER if p not in mission.completed_phases]
     default_proposed = remaining[0] if remaining else "report"
-    # La suggestion du LLM (si presente et valide) prime sur l'ordre lineaire
-    # par defaut, mais enforce_progression() reste seul a decider en dernier
-    # ressort - une suggestion invalide ou absente retombe simplement sur le
-    # comportement deterministe precedent.
+    # The LLM's suggestion (if present and valid) takes priority over the
+    # default linear order, but enforce_progression() remains the sole
+    # final decision-maker - an invalid or absent suggestion simply falls
+    # back to the previous deterministic behavior.
     proposed = mission.last_decision or default_proposed
 
     next_phase = enforce_progression(mission, proposed, max_cycles=settings.max_cycles)
@@ -98,27 +98,27 @@ async def run_mission(
     mission: MissionState,
     on_progress: Optional[Callable[[MissionState], Awaitable[None]]] = None,
 ) -> MissionState:
-    """Execute la mission de bout en bout.
+    """Runs the mission end to end.
 
-    Si on_progress est fourni, il est appele avec l'etat courant apres
-    chaque phase (persistance + diffusion WebSocket cote appelant), au lieu
-    d'attendre la toute fin de la mission pour la premiere mise a jour
-    visible sur le dashboard. core/ reste decouple de api/ : c'est
-    l'appelant qui decide quoi faire de chaque etat intermediaire.
+    If on_progress is supplied, it's called with the current state after
+    each phase (persistence + WebSocket broadcast on the caller's side),
+    instead of waiting until the very end of the mission for the first
+    update visible on the dashboard. core/ stays decoupled from api/: it's
+    the caller that decides what to do with each intermediate state.
     """
     settings = get_settings()
     graph = build_graph()
     result: GraphState = {"mission": mission}
     is_first_yield = True
-    # Plafond explicite en plus du compteur d'orchestration_cycles :
-    # LangGraph a sa propre limite de recursion par defaut (non documentee,
-    # ~25), mieux vaut ne jamais en dependre implicitement.
+    # Explicit ceiling on top of the orchestration_cycles counter:
+    # LangGraph has its own default recursion limit (undocumented, ~25),
+    # better to never implicitly depend on it.
     config = {"recursion_limit": settings.max_cycles * 2 + 2}
     async for step in graph.astream({"mission": mission}, stream_mode="values", config=config):
         result = step
         if is_first_yield:
-            # stream_mode="values" emet d'abord l'etat d'entree tel quel,
-            # avant l'execution du premier noeud : rien a diffuser encore.
+            # stream_mode="values" first emits the input state as-is,
+            # before the first node runs: nothing to broadcast yet.
             is_first_yield = False
             continue
         if on_progress is not None:

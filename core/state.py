@@ -1,8 +1,8 @@
-"""Coeur deterministe du framework.
+"""Deterministic core of the framework.
 
-Toute decision engageante (severite, risque global, consolidation des
-findings, progression de l'orchestrateur) vit ici, jamais dans un agent ni
-dans une reponse de modele de langage. Voir PROJECT.md, principe directeur.
+Every consequential decision (severity, overall risk, findings
+consolidation, orchestrator progression) lives here, never in an agent nor
+in a language model's response. See PROJECT.md, guiding principle.
 """
 from __future__ import annotations
 
@@ -31,16 +31,16 @@ def _now() -> str:
 
 
 def _redact(text: str, secret: Optional[str]) -> str:
-    """Retire toute occurrence litterale d'un secret (ex. cookie de session)
+    """Strip any literal occurrence of a secret (e.g. the session cookie)
 
-    d'un texte libre avant stockage. Defense en profondeur : nuclei redige
-    deja lui-meme son propre champ curl-command (verifie dans son code
-    source), mais sqlmap/dalfox/commix/nikto n'offrent aucune garantie
-    equivalente sur leur sortie brute - rien n'empeche structurellement un
-    mode verbeux/une erreur de ces outils d'echoer le cookie envoye dans un
-    texte qui finit dans evidence/description (voir docs/HISTORY.md,
-    section 20). Ne remplace pas la discipline de ne jamais transmettre le
-    cookie brut via l'API/le rapport (deja le cas ailleurs), s'ajoute a elle.
+    from free text before storage. Defense in depth: nuclei already
+    redacts its own curl-command field itself (verified in its source
+    code), but sqlmap/dalfox/commix/nikto offer no equivalent guarantee on
+    their raw output - nothing structurally prevents a verbose mode/error
+    from one of these tools echoing the sent cookie into text that ends up
+    in evidence/description (see docs/HISTORY.md, section 20). Doesn't
+    replace the discipline of never passing the raw cookie through the
+    API/report (already the case elsewhere), adds to it.
     """
     if not secret or not text:
         return text
@@ -48,21 +48,20 @@ def _redact(text: str, secret: Optional[str]) -> str:
 
 
 def _dedup_key_text(value: str) -> str:
-    """Normalise pour la comparaison de doublons : espaces, casse, barre
+    """Normalize for duplicate comparison: whitespace, case, trailing
 
-    oblique finale (ex. "/admin/" et "/admin" doivent compter comme le meme
-    chemin).
+    slash (e.g. "/admin/" and "/admin" must count as the same path).
     """
     return value.strip().lower().rstrip("/")
 
 
 def cap_severity(severity: Severity, exploited: bool) -> Severity:
-    """Sans preuve d'exploitation, une decouverte ne depasse jamais MEDIUM.
+    """Without proof of exploitation, a mere discovery never exceeds MEDIUM.
 
-    HIGH/CRITICAL exige exploited=True. Voir docs/HISTORY.md, incident #10 :
-    un CRITICAL hallucine a traverse tout le pipeline faute d'un plafonnement
-    applique systematiquement. Cette fonction est la seule source de verite ;
-    elle ne doit jamais etre reimplementee localement dans un agent.
+    HIGH/CRITICAL requires exploited=True. See docs/HISTORY.md, incident
+    #10: a hallucinated CRITICAL made it through the whole pipeline for
+    lack of systematically applied capping. This function is the sole
+    source of truth; it must never be reimplemented locally in an agent.
     """
     if not exploited and severity in (Severity.HIGH, Severity.CRITICAL):
         return Severity.MEDIUM
@@ -85,19 +84,20 @@ class Finding:
     created_at: str = field(default_factory=_now)
 
     def __post_init__(self) -> None:
-        # Garde-fou structurel : meme si un agent oublie d'appeler
-        # cap_severity avant de construire ce Finding, la severite ne peut
-        # jamais depasser MEDIUM sans exploited=True. Defense en profondeur
-        # au-dela de la discipline attendue des agents (incident #10 : un
-        # agent non couvert par le plafonnement a laisse passer un CRITICAL
-        # hallucine jusqu'au rapport final).
+        # Structural guardrail: even if an agent forgets to call
+        # cap_severity before constructing this Finding, the severity can
+        # never exceed MEDIUM without exploited=True. Defense in depth
+        # beyond the discipline expected of agents (incident #10: an agent
+        # not covered by capping let a hallucinated CRITICAL through to
+        # the final report).
         requested_severity = self.severity
         self.severity = cap_severity(self.severity, self.exploited)
         if self.severity != requested_severity:
-            # Note visible dans le rapport plutot qu'un plafonnement silencieux :
-            # un lecteur doit pouvoir voir qu'une severite plus haute a ete
-            # proposee (par un outil ou le LLM) et ramenee ici faute de preuve
-            # d'exploitation, plutot que de le deviner.
+            # A note visible in the report rather than a silent cap: a
+            # reader must be able to see that a higher severity was
+            # proposed (by a tool or the LLM) and brought back down here
+            # for lack of confirmed exploitation proof, rather than having
+            # to guess it.
             self.description = (
                 f"{self.description}\n\n"
                 f"[Note automatique : severite proposee {requested_severity.name}, "
@@ -110,7 +110,7 @@ class Finding:
 
 @dataclass
 class Lead:
-    """Piste speculative. Pas de champ severity : une piste n'est pas notee."""
+    """Speculative lead. No severity field: a lead isn't scored."""
 
     title: str
     rationale: str
@@ -128,12 +128,12 @@ class Target:
     services: dict[int, str] = field(default_factory=dict)
     os_guess: Optional[str] = None
     os_confidence: Optional[float] = None
-    # Cookie de session fourni par l'operateur (ex. "PHPSESSID=...; security=low"
-    # pour DVWA), obtenu manuellement via un navigateur. Permet aux outils web
-    # (gobuster, ffuf, nikto, sqlmap) d'atteindre les pages protegees par
-    # authentification. Jamais affiche en clair dans le rapport (voir
-    # report_agent.py) ; jamais devine ni automatise par le framework -
-    # chaque application gere son propre flux de connexion differemment.
+    # Session cookie supplied by the operator (e.g. "PHPSESSID=...;
+    # security=low" for DVWA), obtained manually via a browser. Lets the
+    # web tools (gobuster, ffuf, nikto, sqlmap) reach pages protected by
+    # authentication. Never shown in the clear in the report (see
+    # report_agent.py); never guessed or automated by the framework -
+    # every application handles its own login flow differently.
     session_cookie: Optional[str] = None
 
 
@@ -158,11 +158,11 @@ class MissionState:
     tool_results: list[dict] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
 
-    # Contexte de travail partage entre phases, cle par nom d'agent (ex.
-    # scratch["enum"] = {"candidate_urls": [...]}). Purement informatif : un
-    # agent en aval peut le lire pour eviter de re-deriver ce qu'une phase
-    # precedente a deja etabli, mais aucune decision critique (severite,
-    # risque) ne doit jamais se fonder dessus - seuls findings/leads comptent.
+    # Work context shared between phases, keyed by agent name (e.g.
+    # scratch["enum"] = {"candidate_urls": [...]}). Purely informational: a
+    # downstream agent may read it to avoid re-deriving what a previous
+    # phase already established, but no critical decision (severity, risk)
+    # must ever be based on it - only findings/leads count.
     scratch: dict[str, dict] = field(default_factory=dict)
 
     report_path: Optional[str] = None
@@ -171,12 +171,12 @@ class MissionState:
     updated_at: str = field(default_factory=_now)
 
     def add_finding(self, finding: Finding) -> None:
-        # Append-only : un finding confirme n'est jamais retire ni modifie
-        # apres coup, seulement consolide au moment de sa creation. Dedoublonne
-        # sur (titre, composant affecte, severite) normalises : un meme outil
-        # (nikto, gobuster, ...) peut resignaler la meme chose deux fois dans
-        # une mission, ce qui produirait sinon des findings litteralement
-        # dupliques dans le rapport.
+        # Append-only: a confirmed finding is never removed or modified
+        # afterward, only consolidated at creation time. Deduplicated on
+        # normalized (title, affected component, severity): the same tool
+        # (nikto, gobuster, ...) may re-report the same thing twice in a
+        # mission, which would otherwise produce literally duplicated
+        # findings in the report.
         cookie = self.target.session_cookie
         finding.evidence = _redact(finding.evidence, cookie)
         finding.description = _redact(finding.description, cookie)
@@ -197,7 +197,7 @@ class MissionState:
     def add_lead(self, lead: Lead) -> None:
         lead.rationale = _redact(lead.rationale, self.target.session_cookie)
 
-        # Meme logique de dedoublonnage que add_finding, sur (titre, source).
+        # Same deduplication logic as add_finding, on (title, source).
         key = (_dedup_key_text(lead.title), lead.source)
         for existing in self.leads:
             if (_dedup_key_text(existing.title), existing.source) == key:
@@ -207,9 +207,9 @@ class MissionState:
 
 
 def compute_overall_risk(findings: list[Finding]) -> Severity:
-    """Jamais demande au LLM. Severite maximale parmi les findings confirmes.
+    """Never asked of the LLM. Maximum severity among confirmed findings.
 
-    Les leads n'entrent jamais dans ce calcul (voir PROJECT.md).
+    Leads never enter this calculation (see PROJECT.md).
     """
     if not findings:
         return Severity.INFO
@@ -217,10 +217,10 @@ def compute_overall_risk(findings: list[Finding]) -> Severity:
 
 
 def consolidate_denied_paths(candidate_paths: list[dict], discovered_by: str) -> Optional[Finding]:
-    """Regroupe tous les chemins en 401/403 en un seul finding LOW.
+    """Groups every 401/403 path into a single LOW finding.
 
-    Evite qu'un scan avec, par exemple, 22 chemins proteges ne produise 22
-    findings quasi identiques (bruit dans le rapport, faux positifs percus).
+    Avoids a scan with, say, 22 protected paths producing 22 nearly
+    identical findings (noise in the report, perceived false positives).
     """
     denied = [p for p in candidate_paths if p.get("status_code") in (401, 403)]
     if not denied:
@@ -249,20 +249,20 @@ def consolidate_denied_paths(candidate_paths: list[dict], discovered_by: str) ->
 
 
 def enforce_progression(state: MissionState, proposed_next_phase: str, max_cycles: int = 10) -> str:
-    """Garde-fou anti-boucle de l'orchestrateur.
+    """Orchestrator anti-loop guardrail.
 
-    - incremente orchestration_cycles a chaque decision
-    - au-dela de max_cycles : force "report" (une seule fois) puis "end"
-    - une phase deja terminee (hors "report") est redirigee vers la premiere
-      phase non terminee de l'ordre lineaire
-    - toute tentative de terminer sans etre passe par "report" force "report"
-    - une suggestion (MissionState.last_decision) ne peut jamais sauter une
-      phase intermediaire non terminee : seule la phase suivante reelle, ou
-      un saut direct vers "report" (fin anticipee), est honore. Une phase
-      intermediaire sautee (ex. exploit avant enum) prive une phase en aval
-      de donnees dont elle depend reellement (exploit_agent s'appuie sur les
-      URLs decouvertes par enum via MissionState.scratch) - voir
-      docs/HISTORY.md pour l'incident qui a motive cette regle.
+    - increments orchestration_cycles on every decision
+    - past max_cycles: forces "report" (once) then "end"
+    - a phase already completed (other than "report") is redirected to the
+      first incomplete phase in the linear order
+    - any attempt to finish without going through "report" forces "report"
+    - a suggestion (MissionState.last_decision) can never skip an
+      incomplete intermediate phase: only the real next phase, or a direct
+      skip to "report" (early completion), is honored. A skipped
+      intermediate phase (e.g. exploit before enum) deprives a downstream
+      phase of data it genuinely depends on (exploit_agent relies on the
+      URLs enum discovered via MissionState.scratch) - see
+      docs/HISTORY.md for the incident that motivated this rule.
     """
     state.orchestration_cycles += 1
 
@@ -295,15 +295,15 @@ def enforce_progression(state: MissionState, proposed_next_phase: str, max_cycle
 
 
 def is_target_in_allowed_ranges(host: str, allowed_ranges: list[str]) -> bool:
-    """Garde-fou de perimetre optionnel (desactive si allowed_ranges est vide).
+    """Optional perimeter guardrail (disabled if allowed_ranges is empty).
 
-    Desactive par defaut : le MVP doit fonctionner contre une cible externe
-    quelconque (voir PROJECT.md), donc restreindre par defaut a des plages
-    privees contredirait cet objectif. Un operateur peut l'activer via
-    ALLOWED_TARGET_RANGES pour verrouiller ses propres missions a un
-    laboratoire connu. Ferme (retourne False) si la resolution DNS d'un nom
-    d'hote echoue alors que la restriction est active : on ne devine jamais
-    la portee d'une cible qu'on ne sait pas resoudre.
+    Disabled by default: the MVP must work against any external target
+    (see PROJECT.md), so restricting to private ranges by default would
+    contradict that goal. An operator can enable it via
+    ALLOWED_TARGET_RANGES to lock their own missions to a known lab. Fails
+    closed (returns False) if DNS resolution of a hostname fails while the
+    restriction is active: never guess the scope of a target that can't be
+    resolved.
     """
     if not allowed_ranges:
         return True

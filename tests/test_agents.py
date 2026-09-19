@@ -1,8 +1,8 @@
-"""Regression directe de l'incident lie a nmap -O (docs/HISTORY.md, section 3) :
+"""Direct regression test for the nmap -O incident (docs/HISTORY.md, section 3):
 
-un guess d'OS a faible confiance ne doit jamais apparaitre comme un fait sur
-Target, seulement comme une Lead. L'agent est teste sans connexion LLM ni
-outil reel (BaseAgent.__init__ est court-circuite).
+a low-confidence OS guess must never appear as a fact on Target, only as a
+Lead. The agent is tested with no real LLM connection or tool
+(BaseAgent.__init__ is bypassed).
 """
 from types import SimpleNamespace
 
@@ -25,7 +25,7 @@ class _StubNmapTool:
 
 
 def _make_recon_agent(nmap_responses: dict[str, ToolResult]) -> ReconAgent:
-    agent = ReconAgent.__new__(ReconAgent)  # bypass __init__ : pas de connexion LLM reelle
+    agent = ReconAgent.__new__(ReconAgent)  # bypass __init__: no real LLM connection
     agent.name = "recon"
 
     async def fake_ask_llm(*args, **kwargs):
@@ -183,10 +183,10 @@ async def test_enum_agent_merges_crawler_urls_and_post_forms_into_scratch():
 
 @pytest.mark.asyncio
 async def test_enum_agent_caps_nuclei_critical_match_without_exploitation_proof():
-    """nuclei detecte des motifs, il ne confirme jamais une exploitation :
+    """nuclei detects patterns, it never confirms exploitation:
 
-    meme un match "critical" doit passer par cap_severity comme tout le
-    reste et retomber a MEDIUM sans preuve d'exploitation.
+    even a "critical" match must go through cap_severity like everything
+    else and fall back to MEDIUM without proof of exploitation.
     """
     agent = EnumAgent.__new__(EnumAgent)
     agent.name = "enum"
@@ -317,7 +317,7 @@ async def test_exploit_agent_tests_post_forms_discovered_by_crawler():
     mission = MissionState(
         mission_id="m7", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
     )
-    mission.target.services = {}  # aucun port http a boucler : seul le chemin post_forms est teste ici
+    mission.target.services = {}  # no HTTP port to loop over: only the post_forms path is tested here
     mission.scratch["enum"] = {
         "candidate_urls": [],
         "base_urls": [],
@@ -366,12 +366,12 @@ async def test_exploit_agent_tests_all_three_vectors_per_candidate_url():
 
 @pytest.mark.asyncio
 async def test_exploit_agent_tests_absolute_candidate_url_once_with_multiple_http_ports():
-    """Regression directe : une mission reelle a deux ports HTTP (8000, 8080)
+    """Direct regression test: a real mission with two HTTP ports (8000, 8080)
 
-    faisait tester chaque URL candidate deja complete une fois par port au
-    lieu d'une fois au total (candidates deja absolues, donc independantes
-    du port en cours) - visible dans la chaine d'attaque comme deux entrees
-    dalfox identiques pour la meme URL exploitee.
+    made every already-complete candidate URL get tested once per port
+    instead of once in total (candidates are already absolute, so
+    independent of the current port) - visible in the attack chain as two
+    identical dalfox entries for the same exploited URL.
     """
     agent = ExploitAgent.__new__(ExploitAgent)
     agent.name = "exploit"
@@ -399,9 +399,9 @@ async def test_exploit_agent_tests_absolute_candidate_url_once_with_multiple_htt
 
 @pytest.mark.asyncio
 async def test_exploit_agent_records_reflected_xss_as_lead_not_finding():
-    """Regression directe : dalfox "Reflected" (type R) n'est jamais une
+    """Direct regression test: dalfox "Reflected" (type R) is never
 
-    preuve d'exploitation - seulement une piste a verifier manuellement.
+    proof of exploitation - only a lead to verify manually.
     """
     agent = ExploitAgent.__new__(ExploitAgent)
     agent.name = "exploit"

@@ -1,8 +1,8 @@
-"""Contrat commun a tous les agents. Le LLM y est strictement consultatif :
+"""Common contract for every agent. The LLM here is strictly consultative:
 
-toute erreur de communication ou reponse JSON invalide degrade en dict vide
-plutot que de faire echouer la mission (voir critere de validation MVP,
-section 11 de CLAUDE.md : une mission se termine toujours).
+any communication error or invalid JSON reply degrades to an empty dict
+instead of failing the mission (see the MVP validation criterion, CLAUDE.md
+section 11: a mission always completes).
 """
 from __future__ import annotations
 
@@ -35,13 +35,14 @@ class BaseAgent(ABC):
             base_url=settings.ollama_base_url,
             model=settings.ollama_model_main,
             temperature=0.1,
-            # Chaque prompt de ce fichier demande explicitement un JSON court
-            # (quelques phrases, quelques listes courtes) : un plafond de
-            # generation borne le pire cas sur un modele local CPU-only sans
-            # jamais couper une reponse utile en pratique. client_kwargs est
-            # transmis tel quel au client ollama (lui-meme base sur httpx),
-            # qui accepte "timeout" - sans ca, un appel bloque peut geler une
-            # phase entiere indefiniment (voir docs/HISTORY.md, section 18).
+            # Every prompt in this file explicitly asks for short JSON (a
+            # few sentences, a few short lists): a generation cap bounds
+            # the worst case on a CPU-only local model without ever
+            # cutting off a useful reply in practice. client_kwargs is
+            # passed through as-is to the ollama client (itself based on
+            # httpx), which accepts "timeout" - without it, a stuck call
+            # could freeze an entire phase indefinitely (see
+            # docs/HISTORY.md, section 18).
             num_predict=settings.llm_num_predict,
             client_kwargs={"timeout": settings.llm_timeout_seconds},
         )
@@ -56,17 +57,17 @@ class BaseAgent(ABC):
             )
             content = response.content if isinstance(response.content, str) else str(response.content)
             return self._extract_json(content)
-        except Exception as exc:  # noqa: BLE001 - la mission ne doit jamais s'arreter sur un souci LLM
+        except Exception as exc:  # noqa: BLE001 - the mission must never stop over an LLM issue
             return {"_llm_error": str(exc)}
 
     @staticmethod
     def _extract_json(content: str) -> dict[str, Any]:
-        """Extraction de JSON tolerante aux petites imperfections d'un modele
+        """JSON extraction tolerant of the small imperfections a more
 
-        local plus modeste (cloture de bloc markdown, caracteres de controle
-        litteraux, texte parasite avant/apres le JSON, virgule trainante).
-        Renvoie {} plutot que de lever une exception : voir le principe
-        consultatif du LLM en tete de ce fichier.
+        modest local model produces (markdown fences, literal control
+        characters, stray text before/after the JSON, trailing commas).
+        Returns {} rather than raising: see this file's consultative LLM
+        principle at the top.
         """
         text = content.strip()
 
@@ -78,14 +79,14 @@ class BaseAgent(ABC):
         if start == -1:
             return {}
 
-        # 1) Tentative directe, strict=False tolere les caracteres de
-        #    controle litteraux (cause frequente d'echec sur un petit modele).
+        # 1) Direct attempt, strict=False tolerates literal control
+        #    characters (a frequent failure cause on a small model).
         parsed = _try_json_object(text[start:])
         if parsed is not None:
             return parsed
 
-        # 2) Isolation par comptage d'accolades : le modele a pu ajouter du
-        #    texte apres le JSON (ex. une phrase de politesse).
+        # 2) Brace-counting isolation: the model may have added text
+        #    after the JSON (e.g. a polite closing sentence).
         depth = 0
         end = None
         for i in range(start, len(text)):
@@ -102,8 +103,8 @@ class BaseAgent(ABC):
             if parsed is not None:
                 return parsed
 
-        # 3) Nettoyage best-effort : virgules trainantes et caracteres de
-        #    controle non echappes a l'interieur des chaines.
+        # 3) Best-effort cleanup: trailing commas and unescaped control
+        #    characters inside strings.
         cleaned = re.sub(r",\s*([\]}])", r"\1", isolated)
         cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", cleaned)
         parsed = _try_json_object(cleaned)

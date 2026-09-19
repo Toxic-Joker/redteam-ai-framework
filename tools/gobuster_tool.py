@@ -1,4 +1,4 @@
-"""gobuster : nom de binaire unique ('gobuster', jamais 'gobuster3', incident #6)."""
+"""gobuster: a single binary name ('gobuster', never 'gobuster3', incident #6)."""
 from __future__ import annotations
 
 import os
@@ -15,7 +15,7 @@ KNOWN_WORDLIST_PATHS = [
 
 
 def resolve_wordlist(explicit: Optional[str] = None) -> str:
-    """Verifie l'existence reelle de la wordlist, avec repli sur un chemin connu."""
+    """Checks that the wordlist actually exists, falling back to a known path."""
     candidates = [explicit] if explicit else []
     candidates += KNOWN_WORDLIST_PATHS
     for path in candidates:
@@ -40,9 +40,9 @@ class GobusterTool(BaseTool):
     ) -> list[str]:
         binary = self.binary_path()
         wl = resolve_wordlist(wordlist)
-        # -t 50 : gobuster tourne desormais en parallele des 4 autres outils
-        # d'enumeration (voir enum_agent.py), le defaut conservateur de 10
-        # threads n'a plus de raison de dominer le temps total de la phase.
+        # -t 50: gobuster now runs concurrently with the 4 other
+        # enumeration tools (see enum_agent.py), the conservative default
+        # of 10 threads no longer needs to dominate the phase's total time.
         args = [binary, "dir", "-u", target, "-w", wl, "-t", "50", "-q", "-n", "-o", "-"]
         if extensions:
             args += ["-x", extensions]

@@ -1,8 +1,8 @@
-"""Enumeration web : gobuster + ffuf + nikto + nuclei sur les ports HTTP(S)
+"""Web enumeration: gobuster + ffuf + nikto + nuclei on the HTTP(S) ports
 
-trouves, plus un crawler pour les pages avec parametres. Consolide
-systematiquement les 401/403 (critere de validation MVP : 22 chemins en
-401/403 produisent un seul finding LOW, jamais 22).
+found, plus a crawler for pages with parameters. Systematically
+consolidates 401/403s (MVP validation criterion: 22 paths returning
+401/403 produce a single LOW finding, never 22).
 """
 from __future__ import annotations
 
@@ -19,11 +19,11 @@ from .base_agent import BaseAgent
 
 HTTP_SERVICE_HINTS = ("http", "www", "ssl/http")
 
-# nuclei detecte des motifs, il ne confirme jamais une exploitation : meme un
-# match "critical" est plafonne a MEDIUM par Finding.__post_init__
-# (core/state.py), seul point d'application de cap_severity - jamais un
-# appel explicite ici, pour que la note de transparence compare la severite
-# reellement rapportee par nuclei a la severite finale.
+# nuclei detects patterns, it never confirms exploitation: even a
+# "critical" match is capped to MEDIUM by Finding.__post_init__
+# (core/state.py), the sole point where cap_severity applies - never an
+# explicit call here, so the transparency note correctly compares the
+# severity nuclei actually reported against the final one.
 NUCLEI_SEVERITY_MAP = {
     "critical": Severity.CRITICAL,
     "high": Severity.HIGH,
@@ -56,9 +56,9 @@ class EnumAgent(BaseAgent):
         state.current_agent = self.name
         host = state.target.host
 
-        # Chemins accessibles decouverts cette phase, partages via
-        # state.scratch pour que l'agent d'exploitation n'ait pas besoin de
-        # re-deriver cette information depuis la liste plate tool_results.
+        # Accessible paths discovered this phase, shared via state.scratch
+        # so the exploit agent doesn't need to re-derive this information
+        # from the flat tool_results list.
         candidate_urls: list[str] = []
         post_forms: list[dict] = []
         base_urls: list[str] = []
@@ -69,13 +69,13 @@ class EnumAgent(BaseAgent):
             base_url = f"{scheme}://{host}:{port}"
             base_urls.append(base_url)
 
-            # Les 5 outils de cette phase sont independants les uns des
-            # autres (aucun ne consomme la sortie d'un autre) : les lancer en
-            # parallele plutot qu'en sequence est la principale reduction de
-            # temps de mission possible sans perdre en couverture (voir
-            # docs/HISTORY.md, section 18). asyncio.gather() preserve l'ordre
-            # des resultats selon l'ordre des awaitables, pas selon l'ordre
-            # de fin - le traitement ci-dessous reste deterministe.
+            # The 5 tools in this phase are independent of one another
+            # (none consumes another's output): running them concurrently
+            # rather than sequentially is the main mission-time reduction
+            # possible without losing coverage (see docs/HISTORY.md,
+            # section 18). asyncio.gather() preserves result order based
+            # on the awaitables' order, not completion order - the
+            # processing below stays deterministic.
             gob_result, ffuf_result, nikto_result, crawl_result, nuclei_result = await asyncio.gather(
                 self.gobuster.run(target=base_url, cookie=cookie),
                 self.ffuf.run(target=base_url, cookie=cookie),
@@ -134,13 +134,12 @@ class EnumAgent(BaseAgent):
                     )
                 )
 
-            # Un crawler trouve de vraies pages avec parametres (ex.
-            # /vulnerabilities/sqli/?id=1 apres connexion) qu'aucune
-            # wordlist ne devinera jamais - gobuster/ffuf ne connaissent que
-            # des segments de chemin, jamais les parametres qu'une page
-            # attend reellement. Les formulaires GET sont synthetises en
-            # URL avec parametres (reutilisent le meme pipeline) ; les
-            # formulaires POST sont gardes a part pour sqlmap --data.
+            # A crawler finds real pages with parameters (e.g.
+            # /vulnerabilities/sqli/?id=1 after login) that no wordlist
+            # will ever guess - gobuster/ffuf only know path segments,
+            # never the parameters a page actually expects. GET forms are
+            # synthesized into a URL with parameters (reusing the same
+            # pipeline); POST forms are kept separately for sqlmap --data.
             state.tool_results.append(
                 {
                     "agent": self.name,
@@ -155,9 +154,10 @@ class EnumAgent(BaseAgent):
             candidate_urls.extend(crawl_result.urls_with_params)
             post_forms.extend(crawl_result.post_forms)
 
-            # Couverture large de motifs connus (identifiants par defaut,
-            # panels exposes, CVE courantes) via des templates communautaires
-            # - complement aux outils cibles, pas un remplacement de sqlmap.
+            # Broad coverage of known patterns (default credentials,
+            # exposed panels, common CVEs) via community templates - a
+            # complement to the targeted tools, not a replacement for
+            # sqlmap.
             state.tool_results.append({"agent": self.name, "tool": "nuclei", "result": nuclei_result.parsed})
             for match in nuclei_result.parsed.get("matches", []):
                 severity = NUCLEI_SEVERITY_MAP.get(match.get("severity", "info"), Severity.INFO)

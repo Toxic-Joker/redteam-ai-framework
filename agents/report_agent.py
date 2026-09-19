@@ -1,10 +1,10 @@
-"""Rapport final : le risque global est calcule, jamais demande au LLM.
+"""Final report: the overall risk is calculated, never asked of the LLM.
 
-Le LLM ne redige que le resume executif, les "risques principaux" et les
-"actions immediates" (trois champs de texte libre) ; le badge de risque, le
-regroupement des findings par severite et la liste des recommandations par
-finding (state.remediation) viennent exclusivement du coeur deterministe,
-avec un repli deterministe si le LLM ne repond rien d'exploitable.
+The LLM only drafts the executive summary, the "key risks" and the
+"immediate actions" (three free-text fields); the risk badge, the grouping
+of findings by severity, and the list of per-finding recommendations
+(state.remediation) come exclusively from the deterministic core, with a
+deterministic fallback if the LLM replies with nothing usable.
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ class ReportAgent(BaseAgent):
         state.current_agent = self.name
         settings = get_settings()
 
-        overall_risk = compute_overall_risk(state.findings)  # jamais demande au LLM
+        overall_risk = compute_overall_risk(state.findings)  # never asked of the LLM
         findings_by_severity = self._group_by_severity(state.findings)
 
         llm_summary = await self.ask_llm(
@@ -88,16 +88,16 @@ class ReportAgent(BaseAgent):
             fh.write(html_content)
 
         try:
-            # Import differe : WeasyPrint exige des bibliotheques natives
-            # (Pango/Cairo/GObject) presentes dans l'image Docker mais pas
-            # forcement sur toute machine de developpement. Un echec ici ne
-            # doit jamais empecher la construction du graphe d'orchestration
-            # ni degrader le reste de la mission : le rapport HTML suffit.
+            # Deferred import: WeasyPrint requires native libraries
+            # (Pango/Cairo/GObject) present in the Docker image but not
+            # necessarily on every development machine. A failure here
+            # must never block building the orchestration graph nor
+            # degrade the rest of the mission: the HTML report is enough.
             from weasyprint import HTML
 
             HTML(string=html_content, base_url=settings.reports_dir).write_pdf(pdf_path)
             state.report_path = pdf_path
-        except Exception as exc:  # noqa: BLE001 - le rapport HTML reste disponible meme si le PDF echoue
+        except Exception as exc:  # noqa: BLE001 - the HTML report stays available even if the PDF fails
             self.log_error(state, f"Echec generation PDF: {exc}")
             state.report_path = html_path
 
@@ -115,8 +115,8 @@ class ReportAgent(BaseAgent):
 
     @staticmethod
     def _fallback_immediate_actions(findings: list[Finding]) -> list[str]:
-        # Repli deterministe : les recommandations de la severite confirmee
-        # la plus haute presente, jamais une opinion du LLM.
+        # Deterministic fallback: the recommendations for the highest
+        # confirmed severity present, never an LLM opinion.
         for severity in (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW):
             texts = [f.remediation for f in findings if f.severity == severity and f.remediation]
             if texts:
