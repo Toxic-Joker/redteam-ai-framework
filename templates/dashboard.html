@@ -321,7 +321,7 @@ header {
               <button class="btn btn-danger btn-sm" @click="abortMission()">&#9632; INTERROMPRE</button>
             </template>
             <template x-if="selectedMission.status === 'completed'">
-              <a class="btn btn-ghost btn-sm" :href="'/api/reports/' + selectedMission.mission_id + '/download'">&#8595; RAPPORT</a>
+              <a class="btn btn-ghost btn-sm" :href="'/api/reports/' + selectedMission.mission_id + '/download' + (apiKey ? ('?api_key=' + encodeURIComponent(apiKey)) : '')">&#8595; RAPPORT</a>
             </template>
             <template x-if="!isRunning">
               <button class="btn btn-danger btn-sm" @click="deleteMission()" title="Supprimer">&#10005;</button>
@@ -549,6 +549,9 @@ function dashboard() {
     logs: [],
     creating: false,
     _lastSeen: {},
+    apiKey: (function () {
+      try { return localStorage.getItem('rtaf_api_key') || ''; } catch (e) { return ''; }
+    })(),
 
     newMission: { mission_name: '', target_host: '', operator: 'operator', authorization_ref: '', session_cookie: '' },
 
@@ -574,6 +577,25 @@ function dashboard() {
       this.clock = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
     },
 
+    async apiFetch(url, options = {}) {
+      // Attache X-API-Key si l'operateur en a deja fourni une (API_KEY cote
+      // serveur vide par defaut = aucun en-tete requis, voir core/config.py).
+      // Sur un 401, demande la cle une fois, la retient (localStorage, ce
+      // navigateur uniquement) et rejoue la requete - jamais de cle en dur
+      // dans ce fichier.
+      const withKey = (h) => Object.assign({}, h || {}, this.apiKey ? { 'X-API-Key': this.apiKey } : {});
+      let r = await fetch(url, Object.assign({}, options, { headers: withKey(options.headers) }));
+      if (r.status === 401) {
+        const key = prompt('Cle API requise (en-tete X-API-Key) :', this.apiKey || '');
+        if (key) {
+          this.apiKey = key;
+          try { localStorage.setItem('rtaf_api_key', key); } catch (e) { /* mode prive ou stockage bloque */ }
+          r = await fetch(url, Object.assign({}, options, { headers: withKey(options.headers) }));
+        }
+      }
+      return r;
+    },
+
     async checkHealth() {
       try {
         const r = await fetch('/health');
@@ -597,7 +619,7 @@ function dashboard() {
 
     async loadMissions() {
       try {
-        const r = await fetch(`${API}/missions`);
+        const r = await this.apiFetch(`${API}/missions`);
         if (!r.ok) return;
         this.missions = await r.json();
         if (this.selectedMission) await this.refreshSelected();
@@ -619,7 +641,7 @@ function dashboard() {
       this.openFindings = [];
       this.logs = [];
       try {
-        const r = await fetch(`${API}/missions/${id}`);
+        const r = await this.apiFetch(`${API}/missions/${id}`);
         if (!r.ok) return;
         this.selectedMission = await r.json();
         this._lastSeen = this._snapshotCounts(this.selectedMission);
@@ -632,7 +654,7 @@ function dashboard() {
     async refreshSelected() {
       if (!this.selectedMission) return;
       try {
-        const r = await fetch(`${API}/missions/${this.selectedMission.mission_id}`);
+        const r = await this.apiFetch(`${API}/missions/${this.selectedMission.mission_id}`);
         if (!r.ok) return;
         const data = await r.json();
         this._diffAndLog(data);
@@ -673,7 +695,7 @@ function dashboard() {
       }
       this.creating = true;
       try {
-        const r = await fetch(`${API}/missions`, {
+        const r = await this.apiFetch(`${API}/missions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(this.newMission),
@@ -698,7 +720,7 @@ function dashboard() {
     async abortMission() {
       if (!this.selectedMission) return;
       try {
-        const r = await fetch(`${API}/missions/${this.selectedMission.mission_id}/abort`, { method: 'POST' });
+        const r = await this.apiFetch(`${API}/missions/${this.selectedMission.mission_id}/abort`, { method: 'POST' });
         if (!r.ok) { const err = await r.json(); this.addLog('error', err.detail); return; }
         this.addLog('warn', 'Interruption demandee...');
         await this.refreshSelected();
@@ -709,7 +731,7 @@ function dashboard() {
       if (!this.selectedMission) return;
       if (!confirm(`Supprimer la mission "${this.selectedMission.mission_name}" ?`)) return;
       try {
-        const r = await fetch(`${API}/missions/${this.selectedMission.mission_id}`, { method: 'DELETE' });
+        const r = await this.apiFetch(`${API}/missions/${this.selectedMission.mission_id}`, { method: 'DELETE' });
         if (!r.ok) { const err = await r.json(); alert(err.detail); return; }
         this.selectedMission = null;
         this.logs = [];

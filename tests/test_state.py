@@ -154,6 +154,51 @@ def test_add_lead_keeps_same_title_from_different_sources():
     assert len(mission.leads) == 2
 
 
+def test_add_finding_redacts_session_cookie_from_evidence_and_description():
+    """Defense en profondeur (docs/HISTORY.md, section 20) : nuclei redige
+
+    deja son propre curl-command, mais sqlmap/dalfox/commix/nikto n'offrent
+    aucune garantie equivalente sur leur sortie brute - rien ne doit exposer
+    le cookie de session en clair dans un Finding stocke.
+    """
+    mission = make_mission(target=Target(host="10.0.0.1", session_cookie="PHPSESSID=secret123"))
+    mission.add_finding(
+        Finding(
+            title="X",
+            severity=Severity.LOW,
+            description="Vu avec le cookie PHPSESSID=secret123 dans la requete.",
+            affected_component="c",
+            evidence="Header envoye : Cookie: PHPSESSID=secret123",
+            discovered_by="enum",
+        )
+    )
+    finding = mission.findings[0]
+    assert "secret123" not in finding.evidence
+    assert "secret123" not in finding.description
+    assert "***" in finding.evidence
+
+
+def test_add_lead_redacts_session_cookie_from_rationale():
+    mission = make_mission(target=Target(host="10.0.0.1", session_cookie="PHPSESSID=secret123"))
+    mission.add_lead(
+        Lead(
+            title="X",
+            rationale="payload reflete avec le cookie PHPSESSID=secret123",
+            source="exploit",
+            confidence=0.3,
+        )
+    )
+    assert "secret123" not in mission.leads[0].rationale
+
+
+def test_add_finding_leaves_evidence_untouched_without_session_cookie():
+    mission = make_mission()  # pas de session_cookie
+    mission.add_finding(
+        Finding(title="X", severity=Severity.LOW, description="d", affected_component="c", evidence="preuve brute", discovered_by="enum")
+    )
+    assert mission.findings[0].evidence == "preuve brute"
+
+
 def test_finding_clears_cve_without_exploitation_proof():
     finding = Finding(
         title="Suspicion CVE",
