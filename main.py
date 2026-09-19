@@ -1,4 +1,4 @@
-"""Point d'entree de l'application FastAPI."""
+"""Entry point of the FastAPI application."""
 from __future__ import annotations
 
 import logging
@@ -32,29 +32,29 @@ app.include_router(websocket_router)
 async def on_startup() -> None:
     if not settings.api_key:
         logging.getLogger(__name__).warning(
-            "API_KEY non definie : l'API est entierement ouverte a quiconque atteint ce port. "
-            "A definir avant toute exposition au-dela de la machine de l'operateur (voir CLAUDE.md, section 9)."
+            "API_KEY is not set: the API is wide open to anyone reaching this port. "
+            "Set it before any exposure beyond the operator's own machine (see CLAUDE.md, section 9)."
         )
     os.makedirs(settings.reports_dir, exist_ok=True)
     os.makedirs(settings.db_dir, exist_ok=True)
     await get_store().init()
     try:
         app.mount("/reports_static", StaticFiles(directory=settings.reports_dir), name="reports_static")
-    except Exception:  # noqa: BLE001 - le montage statique n'est pas critique au demarrage
-        logging.getLogger(__name__).warning("Montage de /reports_static impossible", exc_info=True)
+    except Exception:  # noqa: BLE001 - the static mount isn't critical at startup
+        logging.getLogger(__name__).warning("Could not mount /reports_static", exc_info=True)
 
 
 @app.get("/health")
 async def health() -> dict:
-    # Le LLM est consultatif, mais quand Ollama est injoignable, chaque
-    # ask_llm degrade silencieusement en {} - un operateur n'a sinon aucun
-    # signal visible d'un backend hors service. Voir docs/HISTORY.md.
+    # The LLM is consultative, but when Ollama is unreachable, every
+    # ask_llm silently degrades to {} - otherwise an operator has no
+    # visible signal of a backend that's down. See docs/HISTORY.md.
     ollama_ok = False
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             response = await client.get(f"{settings.ollama_base_url}/api/tags")
             ollama_ok = response.status_code == 200
-    except Exception:  # noqa: BLE001 - un Ollama injoignable n'est pas une erreur serveur
+    except Exception:  # noqa: BLE001 - an unreachable Ollama isn't a server error
         ollama_ok = False
     return {"status": "ok" if ollama_ok else "degraded", "ollama": ollama_ok, "model": settings.ollama_model_main}
 

@@ -29,14 +29,14 @@ def render_template(name: str, context: dict) -> str:
 
 
 def require_api_key(x_api_key: str = Header(default=""), api_key: str = Query(default="")) -> None:
-    """Garde-fou de l'API : sans API_KEY definie, ouvert par defaut (voir
+    """API guardrail: open by default with no API_KEY set (see
 
-    core/config.py) pour ne pas casser un deploiement existant au premier
-    pull - un choix explicite documente dans docs/HISTORY.md, section 20,
-    pas un oubli. Des que API_KEY est definie, toute route protegee exige
-    l'en-tete X-API-Key (fetch()) ou, a defaut, le parametre ?api_key=
-    (repli pour le lien de telechargement direct <a href>, qui ne peut pas
-    poser d'en-tete personnalise sur une navigation classique).
+    core/config.py) so it doesn't break an existing deployment on the
+    first pull - an explicit choice documented in docs/HISTORY.md,
+    section 20, not an oversight. Once API_KEY is set, every protected
+    route requires the X-API-Key header (fetch()) or, failing that, the
+    ?api_key= parameter (a fallback for the direct <a href> download
+    link, which can't set a custom header on a plain navigation).
     """
     settings = get_settings()
     if not settings.api_key:

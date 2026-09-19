@@ -1,7 +1,7 @@
-"""Priorite absolue : le coeur deterministe. Chaque regle de CLAUDE.md,
+"""Top priority: the deterministic core. Every rule in CLAUDE.md,
 
-section 7, doit avoir un test qui la verrouille - y compris la regression
-directe de l'incident #10 (docs/HISTORY.md).
+section 7, must have a test locking it down - including the direct
+regression test for incident #10 (docs/HISTORY.md).
 """
 from core.state import (
     PHASE_ORDER,
@@ -46,12 +46,12 @@ def test_cap_severity_leaves_low_and_medium_untouched():
 
 
 def test_finding_auto_caps_even_if_agent_forgets_to_call_cap_severity():
-    """Regression directe de l'incident #10 : un CRITICAL Heartbleed hallucine
+    """Direct regression test for incident #10: a hallucinated CRITICAL
 
-    sur Apache httpd a traverse tout le pipeline faute d'un plafonnement
-    applique par l'agent de reconnaissance. Meme sans appel explicite a
-    cap_severity, le Finding lui-meme doit refuser de laisser passer un
-    HIGH/CRITICAL sans preuve d'exploitation.
+    Heartbleed on Apache httpd made it through the whole pipeline for lack
+    of capping applied by the reconnaissance agent. Even with no explicit
+    call to cap_severity, the Finding itself must refuse to let a
+    HIGH/CRITICAL through without proof of exploitation.
     """
     finding = Finding(
         title="Apache httpd vulnerable a Heartbleed (hallucine)",
@@ -114,7 +114,7 @@ def test_add_finding_deduplicates_same_title_component_and_severity():
     mission.add_finding(Finding(title="Chemins accessibles", **finding_kwargs))
     mission.add_finding(Finding(title="Chemins accessibles", **{**finding_kwargs, "description": "d2"}))
     assert len(mission.findings) == 1
-    assert mission.findings[0].description == "d1"  # le premier est garde, pas ecrase
+    assert mission.findings[0].description == "d1"  # the first one is kept, not overwritten
 
 
 def test_add_finding_normalizes_trailing_slash_for_dedup():
@@ -155,11 +155,11 @@ def test_add_lead_keeps_same_title_from_different_sources():
 
 
 def test_add_finding_redacts_session_cookie_from_evidence_and_description():
-    """Defense en profondeur (docs/HISTORY.md, section 20) : nuclei redige
+    """Defense in depth (docs/HISTORY.md, section 20): nuclei already
 
-    deja son propre curl-command, mais sqlmap/dalfox/commix/nikto n'offrent
-    aucune garantie equivalente sur leur sortie brute - rien ne doit exposer
-    le cookie de session en clair dans un Finding stocke.
+    redacts its own curl-command, but sqlmap/dalfox/commix/nikto offer no
+    equivalent guarantee on their raw output - nothing must expose the
+    session cookie in the clear in a stored Finding.
     """
     mission = make_mission(target=Target(host="10.0.0.1", session_cookie="PHPSESSID=secret123"))
     mission.add_finding(
@@ -192,7 +192,7 @@ def test_add_lead_redacts_session_cookie_from_rationale():
 
 
 def test_add_finding_leaves_evidence_untouched_without_session_cookie():
-    mission = make_mission()  # pas de session_cookie
+    mission = make_mission()  # no session_cookie
     mission.add_finding(
         Finding(title="X", severity=Severity.LOW, description="d", affected_component="c", evidence="preuve brute", discovered_by="enum")
     )
@@ -278,13 +278,13 @@ def test_enforce_progression_allows_end_only_after_report_completed():
 
 
 def test_enforce_progression_rejects_a_forward_skip_suggestion():
-    """Regression directe : une suggestion du LLM (MissionState.last_decision)
+    """Direct regression test: an LLM suggestion (MissionState.last_decision)
 
-    a saute "enum" pour aller droit a "exploit" lors d'un deploiement reel,
-    privant exploit_agent des URLs qu'enum aurait decouvertes (moins de
-    cibles testees). Une suggestion ne peut plus jamais sauter une phase
-    intermediaire non terminee - seule la vraie phase suivante, ou un saut
-    direct vers "report" (fin anticipee), est honore.
+    skipped "enum" to go straight to "exploit" during a real deployment,
+    depriving exploit_agent of the URLs enum would have discovered (fewer
+    targets tested). A suggestion can no longer ever skip an incomplete
+    intermediate phase - only the real next phase, or a direct skip to
+    "report" (early completion), is honored.
     """
     mission = make_mission(completed_phases=["recon"])
     next_phase = enforce_progression(mission, "exploit", max_cycles=10)
@@ -292,9 +292,9 @@ def test_enforce_progression_rejects_a_forward_skip_suggestion():
 
 
 def test_enforce_progression_still_honors_an_early_report_suggestion():
-    """Le seul saut qui reste autorise : terminer plus tot en allant
+    """The only skip that remains allowed: finishing early by going
 
-    directement a "report", puisque rien en aval ne depend de son resultat.
+    directly to "report", since nothing downstream depends on its result.
     """
     mission = make_mission(completed_phases=["recon", "enum"])
     next_phase = enforce_progression(mission, "report", max_cycles=10)
@@ -324,7 +324,7 @@ def test_is_target_in_allowed_ranges_fails_closed_on_unresolvable_hostname(monke
     import socket
 
     def fake_gethostbyname(host):
-        raise socket.gaierror("nom introuvable")
+        raise socket.gaierror("name not found")
 
     monkeypatch.setattr(socket, "gethostbyname", fake_gethostbyname)
     assert is_target_in_allowed_ranges("does-not-resolve.invalid", ["10.0.0.0/8"]) is False

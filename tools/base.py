@@ -1,4 +1,4 @@
-"""Contrat commun a tous les outils externes (nmap, gobuster, nikto, sqlmap, ffuf)."""
+"""Common contract for every external tool (nmap, gobuster, nikto, sqlmap, ffuf)."""
 from __future__ import annotations
 
 import abc
@@ -32,17 +32,17 @@ class BaseTool(abc.ABC):
 
     @staticmethod
     def is_root() -> bool:
-        # sudo uniquement si le processus ne tourne pas deja en root
-        # (le conteneur applicatif tourne en root ; incident #9).
+        # sudo only if the process isn't already running as root
+        # (the application container runs as root; incident #9).
         geteuid = getattr(os, "geteuid", None)
         if geteuid is None:
             return False
         return geteuid() == 0
 
     def is_success(self, returncode: int) -> bool:
-        # Surchargeable : certains outils (sqlmap) utilisent un code de
-        # sortie non nul pour un resultat propre mais negatif ("pas
-        # vulnerable"), ce qui n'est pas un echec d'execution.
+        # Overridable: some tools (sqlmap) use a non-zero exit code for a
+        # clean but negative result ("not vulnerable"), which isn't an
+        # execution failure.
         return returncode == 0
 
     async def _run(self, args: list[str], timeout: int = 300) -> ToolResult:
@@ -58,13 +58,13 @@ class BaseTool(abc.ABC):
             await proc.communicate()
             return ToolResult(tool=self.name, command=args, returncode=-1, stdout="", stderr="timeout", success=False)
         except asyncio.CancelledError:
-            # Mission interrompue par l'operateur (POST .../abort) : ne jamais
-            # laisser un processus d'outil externe (nmap, gobuster, ...)
-            # orphelin en arriere-plan une fois la tache annulee.
+            # Mission interrupted by the operator (POST .../abort): never
+            # leave an external tool process (nmap, gobuster, ...) orphaned
+            # in the background once the task is cancelled.
             proc.kill()
             try:
                 await proc.communicate()
-            except Exception:  # noqa: BLE001 - nettoyage best-effort, l'annulation prime
+            except Exception:  # noqa: BLE001 - best-effort cleanup, cancellation takes priority
                 pass
             raise
         stdout = stdout_b.decode(errors="replace")

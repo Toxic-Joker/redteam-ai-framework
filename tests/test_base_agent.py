@@ -1,8 +1,8 @@
-"""_extract_json doit degrader vers {} plutot que de lever une exception :
+"""_extract_json must degrade to {} rather than raise an exception:
 
-une mission ne s'arrete jamais sur une reponse LLM malformee (section 11 de
-CLAUDE.md). Ces tests couvrent les imperfections reelles d'un petit modele
-local, pas seulement le cas JSON parfaitement forme.
+a mission never stops over a malformed LLM reply (CLAUDE.md section 11).
+These tests cover the real imperfections of a small local model, not just
+the perfectly well-formed JSON case.
 """
 from agents.base_agent import BaseAgent
 
@@ -27,8 +27,8 @@ def test_extract_json_tolerates_trailing_comma():
 
 
 def test_extract_json_tolerates_literal_control_character_in_string():
-    # Un retour a la ligne litteral (non echappe en \n) dans une valeur de
-    # chaine : rejete par json.loads strict, tolere par strict=False.
+    # A literal newline (not escaped as \n) inside a string value: rejected
+    # by strict json.loads, tolerated by strict=False.
     content = '{"summary": "ligne un\nligne deux"}'
     result = BaseAgent._extract_json(content)
     assert "summary" in result

@@ -1,4 +1,4 @@
-"""ffuf : binaire de release GitHub, sortie JSON pour un parsing fiable."""
+"""ffuf: GitHub release binary, JSON output for reliable parsing."""
 from __future__ import annotations
 
 import json
@@ -18,8 +18,8 @@ class FfufTool(BaseTool):
         binary = self.binary_path()
         wl = resolve_wordlist(wordlist)
         url = target.rstrip("/") + "/FUZZ"
-        # -t 80 : meme raisonnement que gobuster (voir gobuster_tool.py) -
-        # ffuf tourne en parallele des autres outils d'enumeration, pas seul.
+        # -t 80: same reasoning as gobuster (see gobuster_tool.py) - ffuf
+        # runs concurrently with the other enumeration tools, not alone.
         args = [binary, "-u", url, "-w", wl, "-t", "80", "-of", "json", "-o", "-", "-s"]
         if cookie:
             args += ["-b", cookie]

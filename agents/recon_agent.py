@@ -1,11 +1,11 @@
-"""Reconnaissance : nmap decouverte/ports/vuln.
+"""Reconnaissance: nmap discovery/ports/vuln.
 
-Ne plafonne jamais explicitement une severite ici : Finding.__post_init__
-(core/state.py) est l'unique point d'application de cap_severity, pour que
-la note de transparence compare bien la severite reellement voulue par
-l'agent a la severite finale (incident #10 : c'est precisement l'agent qui
-avait ete oublie dans la v1 quand le plafonnement dependait de la
-discipline de chaque agent plutot que d'une garantie structurelle).
+Never explicitly caps a severity here: Finding.__post_init__
+(core/state.py) is the sole point where cap_severity applies, so the
+transparency note correctly compares the severity the agent actually
+intended against the final one (incident #10: this is precisely the agent
+that got forgotten in v1 when capping depended on each agent's discipline
+rather than a structural guarantee).
 """
 from __future__ import annotations
 
@@ -20,20 +20,20 @@ from tools.nmap_tool import NmapTool
 
 from .base_agent import BaseAgent
 
-# Un guess -O en dessous de ce seuil de confiance ne doit jamais apparaitre
-# comme un fait dans le rapport (voir CLAUDE.md, section 2 et docs/HISTORY.md,
-# section 3 : nmap -O a produit des resultats absurdes a haute confiance
-# affichee sur des cibles a port unique).
+# A -O guess below this confidence threshold must never appear as a fact
+# in the report (see CLAUDE.md, section 2 and docs/HISTORY.md, section 3:
+# nmap -O produced absurd results at high displayed confidence on
+# single-port targets).
 OS_CONFIDENCE_THRESHOLD = 0.85
 
 
 def _dns_recon(host: str) -> list[str]:
-    """Enumeration DNS best-effort : reverse (PTR) si la cible est une IP,
+    """Best-effort DNS enumeration: reverse (PTR) if the target is an IP,
 
-    sinon A/MX/NS si c'est un nom d'hote. Toujours purement informatif
-    (jamais un Finding, jamais un facteur de severite/risque) et jamais
-    bloquant : une resolution DNS absente ou en echec sur la cible ne doit
-    jamais faire echouer la mission.
+    otherwise A/MX/NS if it's a hostname. Always purely informational
+    (never a Finding, never a severity/risk factor) and never blocking: a
+    missing or failed DNS resolution on the target must never fail the
+    mission.
     """
     records: list[str] = []
     resolver = dns.resolver.Resolver()
@@ -56,9 +56,9 @@ def _dns_recon(host: str) -> list[str]:
                 try:
                     for rdata in resolver.resolve(host, record_type):
                         records.append(f"{record_type}: {rdata}")
-                except Exception:  # noqa: BLE001 - un type d'enregistrement absent n'est pas une erreur
+                except Exception:  # noqa: BLE001 - a missing record type isn't an error
                     continue
-    except Exception:  # noqa: BLE001 - la recon DNS ne doit jamais interrompre la mission
+    except Exception:  # noqa: BLE001 - DNS recon must never interrupt the mission
         pass
     return records
 
@@ -74,9 +74,9 @@ class ReconAgent(BaseAgent):
         state.current_agent = self.name
         host = state.target.host
 
-        # dnspython est synchrone/bloquant : jamais appele directement dans
-        # une coroutine sous peine de geler toute la boucle asyncio (et donc
-        # l'API/le dashboard entiers) pendant le delai de resolution.
+        # dnspython is synchronous/blocking: never called directly in a
+        # coroutine, or it freezes the entire asyncio loop (and therefore
+        # the whole API/dashboard) for the duration of the resolution.
         dns_records = await asyncio.to_thread(_dns_recon, host)
         if dns_records:
             state.add_lead(

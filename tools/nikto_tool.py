@@ -1,4 +1,4 @@
-"""nikto : pas de paquet apt fiable (incident #2), wrapper shell sur clone GitHub."""
+"""nikto: no reliable apt package (incident #2), shell wrapper on a GitHub clone."""
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -17,9 +17,9 @@ class NiktoTool(BaseTool):
     ) -> list[str]:
         binary = self.binary_path()
         settings = get_settings()
-        # -maxtime est un flag reel de nikto (GetOptions: "maxtime=s"), pense
-        # pour ce cas exact : bornes le pire cas d'un site lent/verbeux sans
-        # changer ce que nikto trouve sur une cible normale (voir
+        # -maxtime is a real nikto flag (GetOptions: "maxtime=s"), designed
+        # for exactly this case: bounds the worst case on a slow/verbose
+        # site without changing what nikto finds on a normal target (see
         # docs/HISTORY.md, section 18).
         args = [
             binary, "-h", target, "-p", str(port), "-Format", "txt", "-output", "-",
@@ -28,24 +28,26 @@ class NiktoTool(BaseTool):
         if ssl:
             args.append("-ssl")
         if cookie:
-            # nikto 2.5.0 n'a pas d'option -Header (verifie dans le GetOptions reel de
-            # program/plugins/nikto_core.plugin - absent de la liste). Le seul mecanisme
-            # documente pour injecter un cookie est la cle de config STATIC-COOKIE
-            # (nikto.conf.default), passee via -Option qui ne coupe que sur le premier
-            # "=" ; chaque paire nom=valeur doit etre entre guillemets, separee par ";".
-            # Un -Header invalide fait echouer GetOptions -> usage() -> exit indefini
-            # (numifie a 0, donc percu comme un succes) : nikto ne scanne alors jamais
-            # rien, et le texte d'aide affiche est confondu avec un vrai finding.
+            # nikto 2.5.0 has no -Header option (verified in the real
+            # GetOptions of program/plugins/nikto_core.plugin - absent
+            # from the list). The only documented mechanism to inject a
+            # cookie is the STATIC-COOKIE config key (nikto.conf.default),
+            # passed via -Option, which only splits on the first "=";
+            # each name=value pair must be quoted, separated by ";".
+            # An invalid -Header makes GetOptions fail -> usage() -> an
+            # undefined exit (numified to 0, so perceived as a success):
+            # nikto then never scans anything, and the displayed help text
+            # gets mistaken for a real finding.
             pairs = [p.strip() for p in cookie.split(";") if p.strip()]
             static_cookie = ";".join(f'"{p}"' for p in pairs)
             args += ["-Option", f"STATIC-COOKIE={static_cookie}"]
         return args
 
     def parse_output(self, result: ToolResult) -> dict[str, Any]:
-        # "+ requires a value" est la derniere ligne de l'ecran d'aide de nikto
-        # (legende du suffixe "+" dans la liste d'options), jamais un vrai
-        # finding : filet de securite si une future option invalide fait a
-        # nouveau tomber nikto dans usage() (voir build_command).
+        # "+ requires a value" is the last line of nikto's help screen (the
+        # legend for the "+" suffix used throughout the option list), never
+        # a real finding: a safety net in case a future invalid option
+        # makes nikto fall into usage() again (see build_command).
         items: list[str] = []
         for line in result.stdout.splitlines():
             line = line.strip()

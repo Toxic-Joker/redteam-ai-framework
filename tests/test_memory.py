@@ -1,7 +1,7 @@
-"""mission_to_dict/mission_from_dict doivent faire un aller-retour fidele -
+"""mission_to_dict/mission_from_dict must round-trip faithfully -
 
-un champ oublie dans l'un des deux sens se perd silencieusement au premier
-rechargement depuis la base (voir session_cookie, ajoute apres coup).
+a field forgotten in either direction gets silently lost on the first
+reload from the database (see session_cookie, added after the fact).
 """
 from core.memory import mission_from_dict, mission_to_dict
 from core.state import MissionState, Target

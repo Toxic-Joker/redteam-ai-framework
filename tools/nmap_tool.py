@@ -1,4 +1,4 @@
-"""nmap : -Pn systematique (incident #8), SYN scan par defaut, connect scan en repli."""
+"""nmap: systematic -Pn (incident #8), SYN scan by default, connect scan as a fallback."""
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
@@ -18,20 +18,20 @@ class NmapTool(BaseTool):
 
         scan_flag = "-sS" if settings.nmap_scan_mode == "syn" else "-sT"
         if scan_flag == "-sS" and not self.is_root():
-            # Le SYN scan exige des sockets brutes ; repli automatique sur le
-            # connect scan plutot que d'echouer ou d'appeler sudo (incident #9).
+            # SYN scan requires raw sockets; automatic fallback to connect
+            # scan rather than failing or calling sudo (incident #9).
             scan_flag = "-sT"
 
-        # -Pn toujours present, sur tous les modes : sans lui, un hote qui
-        # bloque l'ICMP (frequent depuis un pont Docker) est vu comme "down"
-        # et le scan de ports est saute entierement (incident #8).
+        # -Pn always present, on every mode: without it, a host that
+        # blocks ICMP (common across a Docker bridge) is seen as "down"
+        # and the port scan is skipped entirely (incident #8).
         base = [binary, "-Pn"]
 
-        # -T4 et --min-rate accelerent le balayage sans jamais reduire sa
-        # portee (toujours -p- : critere de validation MVP sur un port non
-        # standard, section 11 de CLAUDE.md) - un compromis de vitesse
-        # reseau, pas de couverture. Absents du mode discovery (-sn), deja
-        # quasi instantane.
+        # -T4 and --min-rate speed up the sweep without ever reducing its
+        # scope (always -p-: MVP validation criterion on a non-standard
+        # port, CLAUDE.md section 11) - a network speed trade-off, not a
+        # coverage one. Absent from discovery mode (-sn), already close to
+        # instant.
         speed = ["-T4", "--min-rate", "1000"]
 
         if mode == "discovery":

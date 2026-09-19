@@ -1,8 +1,8 @@
-"""Source unique de verite pour toutes les variables d'environnement.
+"""Single source of truth for every environment variable.
 
-Chaque variable listee dans CLAUDE.md, section 9, est lue une seule fois ici
-et propagee partout ailleurs par injection de Settings, jamais relue via
-os.environ directement dans un agent, un outil ou une route.
+Each variable listed in CLAUDE.md, section 9, is read once here and
+propagated everywhere else via Settings injection, never re-read via
+os.environ directly in an agent, a tool, or a route.
 """
 from __future__ import annotations
 
@@ -20,29 +20,29 @@ class Settings(BaseSettings):
 
     require_authorization: bool = True
 
-    # Cle partagee protegeant l'API/dashboard (en-tete X-API-Key). Vide par
-    # defaut pour ne pas casser un deploiement existant au premier pull, mais
-    # laisse alors l'API entierement ouverte a quiconque atteint le port 8000
-    # (voir docs/HISTORY.md, section 20) - a definir avant toute exposition
-    # au-dela de la machine de l'operateur.
+    # Shared key protecting the API/dashboard (X-API-Key header). Empty by
+    # default so it doesn't break an existing deployment on the first pull,
+    # but that leaves the API wide open to anyone reaching port 8000 (see
+    # docs/HISTORY.md, section 20) - set before any exposure beyond the
+    # operator's own machine.
     api_key: str = ""
 
-    # CIDR separes par des virgules (ex. "10.0.0.0/8,192.168.0.0/16"). Vide
-    # par defaut = aucune restriction (voir core/state.py::is_target_in_allowed_ranges
-    # pour pourquoi ce n'est pas restreint aux plages privees par defaut).
+    # Comma-separated CIDRs (e.g. "10.0.0.0/8,192.168.0.0/16"). Empty by
+    # default = no restriction (see core/state.py::is_target_in_allowed_ranges
+    # for why this isn't restricted to private ranges by default).
     allowed_target_ranges: str = ""
 
-    nmap_scan_mode: str = "syn"  # "syn" (-sS) ou "connect" (-sT)
+    nmap_scan_mode: str = "syn"  # "syn" (-sS) or "connect" (-sT)
     max_cycles: int = 10
     log_level: str = "INFO"
 
-    # Bornes de performance : aucune ne change ce qu'un outil trouve, seulement
-    # combien de temps une mission met a le trouver (voir docs/HISTORY.md,
-    # section 18, pour le detail de chaque decision).
-    llm_num_predict: int = 512  # cap la longueur de generation, jamais la sortie attendue (JSON court)
-    llm_timeout_seconds: int = 180  # borne un appel Ollama bloque, plutot qu'une attente indefinie
-    nikto_max_time: str = "180s"  # -maxtime de nikto lui-meme ; pire cas borne, pas une moyenne
-    exploit_max_concurrent_urls: int = 5  # parallelisme borne entre URLs candidates, pas de rafale illimitee
+    # Performance bounds: none of these change what a tool finds, only how
+    # long a mission takes to find it (see docs/HISTORY.md, section 18, for
+    # the detail behind each decision).
+    llm_num_predict: int = 512  # caps generation length, never the expected output (short JSON)
+    llm_timeout_seconds: int = 180  # bounds a stuck Ollama call rather than an indefinite wait
+    nikto_max_time: str = "180s"  # nikto's own -maxtime; a bounded worst case, not an average
+    exploit_max_concurrent_urls: int = 5  # bounded concurrency across candidate URLs, no unbounded burst
 
     reports_dir: str = "reports"
     db_dir: str = "db"

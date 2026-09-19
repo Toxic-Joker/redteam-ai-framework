@@ -1,13 +1,13 @@
-"""Crawler HTML leger : decouvre pages et formulaires reels au lieu de deviner
+"""Lightweight HTML crawler: discovers real pages and forms instead of
 
-des segments de chemin depuis une wordlist statique (gobuster/ffuf). Necessaire
-pour atteindre les pages avec parametres (ex. DVWA /vulnerabilities/sqli/?id=1)
-qu'aucune wordlist generique ne contient - une wordlist ne connait que des noms
-de fichiers/dossiers, jamais les parametres qu'une page attend reellement.
+guessing path segments from a static wordlist (gobuster/ffuf). Needed to
+reach pages with parameters (e.g. DVWA /vulnerabilities/sqli/?id=1) that no
+generic wordlist contains - a wordlist only knows file/folder names, never
+the parameters a page actually expects.
 
-N'herite pas de BaseTool : ce n'est pas un sous-processus externe mais un
-client HTTP asynchrone pur, la mecanique de BaseTool (build_command/_run
-autour d'un binaire CLI) ne s'applique pas ici.
+Doesn't inherit from BaseTool: this isn't an external subprocess but a pure
+async HTTP client, BaseTool's machinery (build_command/_run around a CLI
+binary) doesn't apply here.
 """
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ from bs4 import BeautifulSoup
 
 @dataclass
 class CrawlResult:
-    # URLs avec parametres deja presents (liens <a href> ou formulaires GET
-    # dont les champs ont ete synthetises en chaine de requete).
+    # URLs that already carry parameters (<a href> links or GET forms
+    # whose fields were synthesized into a query string).
     urls_with_params: list[str] = field(default_factory=list)
-    # Formulaires POST : sqlmap les teste via --data, jamais via une simple URL.
+    # POST forms: sqlmap tests them via --data, never via a plain URL.
     post_forms: list[dict] = field(default_factory=list)
     visited: list[str] = field(default_factory=list)
 
@@ -40,8 +40,8 @@ class CrawlerTool:
         timeout: int = 10,
         transport: Optional[httpx.BaseTransport] = None,
     ) -> CrawlResult:
-        # transport : point d'injection pour les tests (httpx.MockTransport),
-        # jamais utilise en production (None => transport reseau reel d'httpx).
+        # transport: injection point for tests (httpx.MockTransport), never
+        # used in production (None => httpx's real network transport).
         result = CrawlResult()
         seen: set[str] = set()
         queue: list[str] = [base_url]
@@ -59,7 +59,7 @@ class CrawlerTool:
 
                 try:
                     response = await client.get(url)
-                except Exception:  # noqa: BLE001 - une page injoignable ne doit pas arreter le crawl
+                except Exception:  # noqa: BLE001 - an unreachable page must not stop the crawl
                     continue
 
                 result.visited.append(url)
@@ -106,9 +106,9 @@ class CrawlerTool:
             ]
             if not fields:
                 continue
-            # Valeur de test generique par champ : suffisant pour donner a
-            # sqlmap un parametre reel a tester, pas pour remplir le
-            # formulaire de facon semantiquement correcte.
+            # Generic test value per field: enough to give sqlmap a real
+            # parameter to test, not to fill in the form in a semantically
+            # correct way.
             payload = "&".join(f"{name}=1" for name in fields)
             if method == "GET":
                 result.urls_with_params.append(f"{action}?{payload}")

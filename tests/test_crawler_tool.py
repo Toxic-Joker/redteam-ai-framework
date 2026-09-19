@@ -1,7 +1,7 @@
-"""Le crawler doit trouver ce qu'une wordlist ne peut pas : des pages avec
+"""The crawler must find what a wordlist can't: pages with real
 
-parametres reels, y compris synthetisees a partir des champs d'un
-formulaire (GET) ou preparees pour sqlmap --data (POST).
+parameters, including ones synthesized from a form's fields (GET) or
+prepared for sqlmap --data (POST).
 """
 import httpx
 import pytest
@@ -11,7 +11,7 @@ from tools.crawler_tool import CrawlerTool
 PAGE_HOME = """
 <html><body>
 <a href="/page2">Page 2</a>
-<a href="http://evil.example/x?y=1">lien externe, doit etre ignore</a>
+<a href="http://evil.example/x?y=1">external link, must be ignored</a>
 <form method="GET" action="/vulnerabilities/sqli/">
   <input name="id">
   <input type="submit" name="Submit" value="Submit">
@@ -23,7 +23,7 @@ PAGE_HOME = """
 </body></html>
 """
 
-PAGE_2 = "<html><body>rien ici</body></html>"
+PAGE_2 = "<html><body>nothing here</body></html>"
 
 
 def _make_handler():
@@ -89,8 +89,8 @@ async def test_crawler_sends_cookie_header_when_provided():
 @pytest.mark.asyncio
 async def test_crawler_respects_max_pages():
     def handler(request: httpx.Request) -> httpx.Response:
-        # Chaque page pointe vers une page suivante, a l'infini si on ne
-        # bornait pas le nombre de pages visitees.
+        # Each page points to a next page, infinitely if the number of
+        # visited pages weren't bounded.
         n = int(request.url.path.strip("/") or 0)
         return httpx.Response(
             200, headers={"content-type": "text/html"}, text=f'<a href="/{n + 1}">next</a>'

@@ -1,7 +1,7 @@
-"""Priorite : le rendu Jinja du rapport doit reussir de bout en bout - une
+"""Priority: the report's Jinja rendering must succeed end to end - a
 
-erreur de template (typo, cle manquante) ne se voit qu'a l'execution, jamais
-a la lecture du fichier.
+template error (typo, missing key) is only visible at execution time,
+never just by reading the file.
 """
 from types import SimpleNamespace
 
@@ -14,7 +14,7 @@ from core.state import Finding, Lead, MissionState, Severity, Target
 
 
 def _make_report_agent() -> ReportAgent:
-    agent = ReportAgent.__new__(ReportAgent)  # bypass __init__ : pas de connexion LLM reelle
+    agent = ReportAgent.__new__(ReportAgent)  # bypass __init__: no real LLM connection
     agent.name = "report"
     agent._env = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=select_autoescape(["html"]))
     return agent
@@ -62,7 +62,7 @@ async def test_report_renders_without_template_errors(tmp_path, monkeypatch):
     agent = _make_report_agent()
 
     async def fake_ask_llm(*args, **kwargs):
-        return {}  # force le chemin de repli deterministe
+        return {}  # forces the deterministic fallback path
 
     agent.ask_llm = fake_ask_llm
     agent.log_error = lambda state, message: state.errors.append({"agent": "report", "message": message})

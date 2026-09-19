@@ -30,9 +30,9 @@ NMAP_XML_SAMPLE = """<?xml version="1.0"?>
 
 
 def test_nmap_always_includes_pn_flag(monkeypatch):
-    """Regression directe de l'incident #8 : sans -Pn, un hote qui bloque
+    """Direct regression test for incident #8: without -Pn, a host that
 
-    l'ICMP est vu comme down et le scan de ports est saute entierement.
+    blocks ICMP is seen as down and the port scan is skipped entirely.
     """
     tool = NmapTool()
     monkeypatch.setattr(tool, "binary_path", lambda: "/usr/bin/nmap")
@@ -43,9 +43,9 @@ def test_nmap_always_includes_pn_flag(monkeypatch):
 
 
 def test_nmap_ports_and_vuln_scans_include_speed_flags(monkeypatch):
-    # -T4/--min-rate accelerent un -p- complet sans jamais reduire sa portee
-    # (le critere de validation MVP sur un port non standard reste intact) -
-    # voir docs/HISTORY.md, section 18.
+    # -T4/--min-rate speed up a full -p- scan without ever reducing its
+    # scope (the MVP validation criterion on a non-standard port stays
+    # intact) - see docs/HISTORY.md, section 18.
     tool = NmapTool()
     monkeypatch.setattr(tool, "binary_path", lambda: "/usr/bin/nmap")
     monkeypatch.setattr(NmapTool, "is_root", staticmethod(lambda: True))
@@ -77,7 +77,7 @@ def test_nmap_parses_open_port_on_nonstandard_port_with_icmp_down_host():
 
 
 def test_gobuster_binary_name_is_never_gobuster3():
-    """Regression directe de l'incident #6 (echec silencieux de l'enumeration)."""
+    """Direct regression test for incident #6 (silent enumeration failure)."""
     assert GobusterTool.binary == "gobuster"
 
 
@@ -141,9 +141,9 @@ def test_nikto_build_command_includes_ssl_flag_when_requested(monkeypatch):
 
 
 def test_nikto_includes_static_cookie_option_when_provided(monkeypatch):
-    # nikto 2.5.0 n'a pas d'option -Header (verifie dans son GetOptions reel) ;
-    # un -Header invalide fait tomber nikto dans usage() en sortant avec un code
-    # 0, ce qui masque silencieusement l'echec du scan (incident documente).
+    # nikto 2.5.0 has no -Header option (verified in its real GetOptions);
+    # an invalid -Header makes nikto fall into usage() and exit with code
+    # 0, which silently masks the scan failure (documented incident).
     tool = NiktoTool()
     monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/nikto")
     args = tool.build_command(target="10.0.0.1", port=80, cookie="PHPSESSID=abc; security=low")
@@ -160,8 +160,8 @@ def test_nikto_omits_option_flag_when_cookie_absent(monkeypatch):
 
 
 def test_nikto_includes_maxtime_bound(monkeypatch):
-    # Borne le pire cas (site lent/verbeux) sans changer ce que nikto trouve
-    # sur une cible normale - voir docs/HISTORY.md, section 18.
+    # Bounds the worst case (slow/verbose site) without changing what
+    # nikto finds on a normal target - see docs/HISTORY.md, section 18.
     tool = NiktoTool()
     monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/nikto")
     args = tool.build_command(target="10.0.0.1", port=80)
@@ -206,12 +206,12 @@ def test_sqlmap_omits_cookie_flag_when_absent(monkeypatch):
 
 
 def test_sqlmap_does_not_flag_negative_result_as_vulnerable():
-    """Regression directe : un deploiement reel a scanne la propre route
+    """Direct regression test: a real deployment scanned the framework's
 
-    racine du framework (mauvaise cible, pas DVWA) et a obtenu un CRITICAL
-    fabrique parce que le parsing combinait "parameter" et "injectable"
-    n'importe ou dans la sortie - y compris dans le message NEGATIF de
-    sqlmap. Voir docs/HISTORY.md, section 6, incident 3.
+    own root route (wrong target, not DVWA) and got a fabricated CRITICAL
+    because the parsing combined "parameter" and "injectable" anywhere in
+    the output - including in sqlmap's NEGATIVE message. See
+    docs/HISTORY.md, section 6, incident 3.
     """
     tool = SqlmapTool()
     stdout = (
@@ -269,22 +269,22 @@ class _SleepTool(BaseTool):
 
 @pytest.mark.asyncio
 async def test_cancelling_a_tool_run_kills_the_subprocess_instead_of_orphaning_it(tmp_path):
-    """Une mission annulee (POST .../abort) ne doit jamais laisser un
+    """A cancelled mission (POST .../abort) must never leave an external
 
-    processus d'outil externe (nmap, gobuster, ...) tourner en arriere-plan.
+    tool process (nmap, gobuster, ...) running in the background.
     """
     marker = tmp_path / "done.marker"
     tool = _SleepTool()
 
     task = asyncio.create_task(tool.run(marker_path=str(marker)))
-    await asyncio.sleep(0.3)  # laisser le sous-processus demarrer reellement
+    await asyncio.sleep(0.3)  # let the subprocess actually start
     task.cancel()
 
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    await asyncio.sleep(0.3)  # laisser le kill se propager
-    assert not marker.exists()  # le sous-processus n'a jamais atteint la fin de son sleep(5)
+    await asyncio.sleep(0.3)  # let the kill propagate
+    assert not marker.exists()  # the subprocess never reached the end of its sleep(5)
 
 
 def test_nuclei_build_command_uses_jsonl_and_no_cookie_flag(monkeypatch):
@@ -292,7 +292,7 @@ def test_nuclei_build_command_uses_jsonl_and_no_cookie_flag(monkeypatch):
     monkeypatch.setattr(tool, "binary_path", lambda: "/usr/local/bin/nuclei")
     args = tool.build_command(target="http://10.0.0.1", cookie="PHPSESSID=abc")
     assert "-jsonl" in args
-    # nuclei n'a pas de flag cookie dedie : il passe par un en-tete generique.
+    # nuclei has no dedicated cookie flag: it goes through a generic header.
     assert "-H" in args
     assert "Cookie: PHPSESSID=abc" in args
     assert "-cookie" not in args
@@ -317,8 +317,8 @@ def test_nuclei_parses_jsonl_matches():
                     "curl-command": "curl http://10.0.0.1/admin",
                 }
             ),
-            "",  # ligne vide, doit etre ignoree sans planter
-            "not json at all",  # ligne malformee, doit etre ignoree sans planter
+            "",  # empty line, must be ignored without crashing
+            "not json at all",  # malformed line, must be ignored without crashing
         ]
     )
     result = ToolResult(tool="nuclei", command=[], returncode=0, stdout=stdout, stderr="", success=True)
@@ -339,7 +339,7 @@ def test_dalfox_build_command_uses_scan_subcommand_and_cookies_flag(monkeypatch)
     assert "-f" in args and "jsonl" in args
     assert "--cookies" in args
     assert "PHPSESSID=abc" in args
-    assert "--headers" not in args  # appartenait a l'ancienne CLI Go, perimee
+    assert "--headers" not in args  # belonged to the old, outdated Go CLI
 
 
 def test_dalfox_flags_verified_type_as_vulnerable():
@@ -352,11 +352,11 @@ def test_dalfox_flags_verified_type_as_vulnerable():
 
 
 def test_dalfox_does_not_flag_reflected_type_as_vulnerable():
-    """Regression directe : dalfox documente "R" (Reflected) comme "not a
+    """Direct regression test: dalfox documents "R" (Reflected) as "not a
 
-    vulnerability assertion" - un deploiement reel a pourtant produit un
-    CRITICAL fabrique parce que toute ligne JSON parsee etait traitee comme
-    une confirmation, quel que soit son "type". Voir docs/HISTORY.md.
+    vulnerability assertion" - yet a real deployment produced a fabricated
+    CRITICAL because every parsed JSON line was treated as a confirmation,
+    regardless of its "type". See docs/HISTORY.md.
     """
     tool = DalfoxTool()
     stdout = json.dumps({"type": "R", "param": "q", "payload": "<script>alert(1)</script>", "severity": "High"})

@@ -1,8 +1,8 @@
-"""Persistance des missions (SQLite/SQLAlchemy) et memoire semantique (ChromaDB).
+"""Mission persistence (SQLite/SQLAlchemy) and semantic memory (ChromaDB).
 
-Aucune dependance torch/sentence-transformers : les embeddings de ChromaDB
-passent par l'endpoint /api/embeddings d'un conteneur Ollama deja present
-pour le LLM principal (voir CLAUDE.md, section 8).
+No torch/sentence-transformers dependency: ChromaDB's embeddings go through
+the /api/embeddings endpoint of an Ollama container already present for the
+main LLM (see CLAUDE.md, section 8).
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from sqlalchemy.orm import DeclarativeBase
 try:
     import chromadb
     from chromadb import EmbeddingFunction, Embeddings
-except ImportError:  # pragma: no cover - chromadb optionnel pour les tests unitaires
+except ImportError:  # pragma: no cover - chromadb optional for unit tests
     chromadb = None
     EmbeddingFunction = object
     Embeddings = list
@@ -161,7 +161,7 @@ def mission_from_dict(data: dict[str, Any]) -> MissionState:
 
 
 class MissionStore:
-    """Source de verite persistee pour l'API et le dashboard (SQLAlchemy + aiosqlite)."""
+    """Persisted source of truth for the API and dashboard (SQLAlchemy + aiosqlite)."""
 
     def __init__(self, db_path: str) -> None:
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
@@ -214,13 +214,13 @@ class MissionStore:
 
 
 class OllamaEmbeddingFunction(EmbeddingFunction):
-    """Embeddings via l'endpoint /api/embeddings d'Ollama, sans torch ni sentence-transformers."""
+    """Embeddings via Ollama's /api/embeddings endpoint, no torch or sentence-transformers."""
 
     def __init__(self, base_url: str, model: str) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
 
-    def __call__(self, input: list[str]) -> "Embeddings":  # noqa: A002 - nom impose par l'interface Chroma
+    def __call__(self, input: list[str]) -> "Embeddings":  # noqa: A002 - name required by the Chroma interface
         embeddings = []
         with httpx.Client(timeout=30) as client:
             for text in input:
@@ -234,7 +234,7 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
 
 
 class SemanticMemory:
-    """Memoire semantique ChromaDB pour retrouver un contexte de mission similaire."""
+    """ChromaDB semantic memory to retrieve similar past mission context."""
 
     def __init__(self) -> None:
         settings = get_settings()
