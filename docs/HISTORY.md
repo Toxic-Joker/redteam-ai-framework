@@ -1,202 +1,795 @@
-# Historique du projet (v1)
+# Project history (v1)
 
-Rétrospective complète de la première version du framework (mémoire de Mastère Cybersécurité, Réseaux & Cloud, EFREI, soutenu). Ce document explique le "pourquoi" derrière plusieurs choix techniques qui peuvent sembler arbitraires dans `CLAUDE.md` s'ils sont lus sans ce contexte. Ne pas modifier une règle de `CLAUDE.md` sans avoir lu l'incident correspondant ici.
+Full retrospective of the framework's first version (Cybersecurity, Networks
+& Cloud Master's thesis, EFREI, defended). This document explains the "why"
+behind several technical choices that may look arbitrary in `CLAUDE.md` if
+read without this context. Do not modify a `CLAUDE.md` rule without having
+read the corresponding incident here.
 
-## 1. Ce qu'on voulait faire à l'origine
+## 1. What we originally set out to do
 
-- Automatiser le cycle offensif complet : reconnaissance, énumération, exploitation, post-exploitation, rapport.
-- Un LLM local prenant des décisions tactiques contextuelles à chaque phase.
-- Adaptation dynamique à l'environnement de la cible.
-- Génération automatique d'un rapport de pentest professionnel (PDF).
-- Réduction de 40 à 50 % du temps passé sur les tâches répétitives.
-- Quatre axes de contribution envisagés au départ : couverture complète du cycle offensif, évasion dynamique face aux EDR/XDR, qualité de la génération de rapport, garanties éthiques et légales.
+- Automate the full offensive cycle: reconnaissance, enumeration,
+  exploitation, post-exploitation, reporting.
+- A local LLM making contextual tactical decisions at each phase.
+- Dynamic adaptation to the target's environment.
+- Automatic generation of a professional pentest report (PDF).
+- 40 to 50% reduction in time spent on repetitive tasks.
+- Four contribution axes envisioned at the start: full coverage of the
+  offensive cycle, dynamic evasion against EDR/XDR, report generation
+  quality, ethical and legal guarantees.
 
-## 2. Ce qui a été réellement construit et validé
+## 2. What was actually built and validated
 
-| Objectif initial | Statut | Détail |
+| Original goal | Status | Detail |
 |---|---|---|
-| Cycle complet recon, enum, exploit, postexploit, rapport | Fait | 5 agents orchestrés par un graphe d'états (LangGraph), validé sur plusieurs exécutions réelles contre DVWA |
-| Adaptation dynamique à la cible | Partiel | Le LLM adapte le plan d'énumération/exploitation aux services trouvés, borné par des règles déterministes |
-| Génération automatique de rapport PDF | Fait | Jinja2 vers HTML puis PDF (WeasyPrint), structure fixe, section séparée pour les hypothèses non confirmées |
-| Réduction de 40 à 50 % du temps | Jamais mesuré | Aucune comparaison chronométrée contre une baseline manuelle |
-| 4 axes de contribution | Recentré | Périmètre final honnête : un axe central (fiabilité déterministe), deux axes secondaires réalisés (cycle complet, rapport structuré), deux axes hors périmètre (évasion mesurée, garde-fous complets) |
-| Fiabilité malgré un LLM local peu fiable | Fait, cœur du projet | Plafonnement de sévérité, consolidation, séparation findings/pistes, calcul déterministe du risque : confirmé sur des rapports réels |
-| Prévention des boucles infinies | Fait, corrigé en cours de route | Limite de cycles, suivi des phases terminées, progression forcée |
-| Fonctionnement sur cibles hors réseau local ou en conteneur | Fait, avec correctif nécessaire | `nmap -Pn` indispensable |
-| Déploiement Docker portable | Fait, après une longue série de correctifs | Voir section 4 |
-| Réduction des faux positifs | Fait | 22 chemins en 401/403 consolidés en un seul finding LOW |
-
-## 3. Ce qui n'a jamais été fait ni validé
-
-- Généralité sur plusieurs cibles ou systèmes d'exploitation : validé sur une seule cible (DVWA), reproductibilité démontrée sur deux exécutions répétées seulement.
-- Évasion mesurée face à un EDR/XDR réel : le paramètre existe (niveaux 1 à 3), jamais testé en conditions réelles de détection.
-- Garde-fous éthiques et légaux complets : seule une référence d'autorisation obligatoire et une journalisation existent.
-- Fallback `-sT` (connect scan) pour cibles filtrées : identifié comme manquant, jamais implémenté dans la v1.
-- Détection d'OS fiable : `nmap -O` a produit des résultats absurdes à haute confiance affichée sur des cibles à port unique.
-- Mesure objective du gain de temps par rapport à un audit manuel.
-
-## 4. Journal des incidents Docker (la partie la plus coûteuse en temps)
-
-Le packaging Docker a été fait après la construction de l'application, pas en même temps. Résultat : une longue série d'allers-retours évitables. Dans l'ordre chronologique réel :
-
-1. **Base Docker non épinglée.** `python:3.11-slim` (sans version de Debian) a changé de version majeure sous les pieds du projet en cours de route (bascule vers Debian trixie), cassant l'installation de paquets qui existaient la veille. Correction : épingler `python:3.11-slim-bookworm`.
-2. **`nikto` introuvable via apt.** Sur Debian récent, `nikto` n'est simplement pas un paquet disponible. Correction : clone GitHub + wrapper shell sur le PATH.
-3. **`sqlmap` même problème.** Même correction : clone GitHub + wrapper shell.
-4. **DNS cassé dans le contexte de build Docker** (`Temporary failure resolving 'deb.debian.org'`) alors que la machine hôte avait bien accès à internet. Cause : le démon Docker n'avait pas de résolveur DNS fonctionnel configuré. Correction côté hôte : `/etc/docker/daemon.json` avec `{"dns": ["8.8.8.8", "1.1.1.1"]}`, puis `systemctl restart docker`.
-5. **Espace disque épuisé pendant un pull d'image Ollama** (`no space left on device`), la faute à un cache de build `--no-cache` jamais nettoyé (`docker builder prune -af` a libéré à lui seul plus de 10 Go) combiné à une image Ollama inutilement lourde (bibliothèques CUDA alors que la machine tournait en CPU seul).
-6. **`gobuster` introuvable alors que l'image l'installait.** Le code appelait le binaire `gobuster3` (héritage d'une ancienne convention de nommage), l'image installait `gobuster`. Résultat : échec silencieux de toute l'énumération de répertoires, aucun log d'erreur visible côté utilisateur. Correction temporaire : lien symbolique `gobuster3` vers `gobuster`. Correction propre pour la v2 : un seul nom partout, pas de symlink à maintenir.
-7. **`nikto` échouait silencieusement en conteneur** (`Required module not found: JSON` puis `XML::Writer`) : modules Perl manquants (`libjson-perl`, `libxml-writer-perl`), en plus de `libnet-ssleay-perl` déjà présent pour SSL. Ajout de `libnet-ip-perl` par précaution.
-8. **Rapports vides en conteneur alors que la cible répondait très bien à `curl` et `nmap -Pn` manuel.** Cause : `nmap` sans `-Pn` fait sa propre découverte d'hôte (ping) avant de scanner les ports. Sur un pont Docker vers un réseau segmenté (Host-Only VMware dans ce cas), l'ICMP est couramment bloqué, et le service ciblé tournait en plus sur un port non standard (8888) que la découverte par défaut ne teste pas. Résultat : nmap concluait "hôte down" et sautait complètement le scan de ports. `-Pn` sur tous les modes de scan (ports, vuln) a réglé le problème net.
-9. **`sudo nmap` échouait en conteneur** : l'image slim n'a pas `sudo` installé, et le conteneur tourne déjà en root. Correction : `sudo` seulement si `os.geteuid() != 0`.
-10. **CRITICAL halluciné qui a traversé tout le pipeline.** Le plafonnement de sévérité avait été ajouté à l'agent d'énumération mais oublié sur l'agent de reconnaissance. Le LLM a produit un faux finding "Apache httpd vulnérable à Heartbleed, CVE-2014-0160" (une faille OpenSSL, sans rapport avec Apache httpd, sur une version qui n'y est pas exposée) classé CRITICAL par le modèle lui-même, remonté tel quel jusqu'au badge de risque global de la mission. Leçon retenue dans `CLAUDE.md` : la fonction de plafonnement doit être écrite une fois dans `core/` et appelée par **tous** les agents qui créent des findings, jamais dupliquée ni oubliée agent par agent.
-11. **Poids et durée de build excessifs** dus à `sentence-transformers`/`torch` dans `requirements.txt`, utilisés uniquement pour les embeddings de la mémoire sémantique ChromaDB. Jamais retiré dans la v1 (identifié, non corrigé faute de temps). Correction prévue pour la v2 : embeddings via l'endpoint `/api/embeddings` d'un modèle léger tournant déjà dans le conteneur Ollama, ce qui retire `torch` entièrement des dépendances Python.
-12. **Cible vulnérable initialement embarquée dans `docker-compose.yml`** (un service DVWA). Retirée sur demande explicite : le conteneur applicatif ne doit contenir que le framework, jamais une cible, la cible étant toujours externe et fournie par l'utilisateur.
-
-## 5. Résultats de référence (exécutions réelles, v1)
-
-- Exécution de référence : 35 minutes, 6 findings (5 MEDIUM, 1 LOW), badge global MEDIUM.
-- Deux exécutions répétées sur la même cible (33m50s et 50m11s) : cœur déterministe strictement identique (mêmes findings confirmés, même badge MEDIUM, même finding consolidé 401/403 à 22 chemins), seule la couche spéculative (nombre de pistes proposées par le LLM, durée) a varié. C'est la preuve de reproductibilité du cœur déterministe, pas de généralité.
-- Répartition du temps observée : environ 5 % pour les outils de sécurité, environ 95 % pour l'inférence du modèle local. C'est le problème précis que le changement de modèle en v2 cherche à réduire.
-
-## 6. Premier déploiement réel v2 (Parrot OS, 8 Go de RAM, 2026-09-18)
-
-Contrairement à la section 4 (incidents de la v1), cette section documente le premier `docker compose up --build` réel de la v2 reconstruite, contre une cible DVWA. Deux constats à retenir pour ne pas les re-découvrir dans une session future.
-
-1. **Nommage des assets de release `gobuster` incorrect.** Le Dockerfile supposait par analogie avec `ffuf` que les assets GitHub de `gobuster` suivaient le schéma `gobuster_Linux_amd64.tar.gz`. Le build a échoué avec un 404 : `gobuster` nomme en réalité ses assets `gobuster_Linux_x86_64.tar.gz` (et `gobuster_Linux_arm64.tar.gz`), avec un "L" majuscule et `x86_64` plutôt que `amd64` — un schéma différent de celui de `ffuf` (`ffuf_<version>_linux_amd64.tar.gz`), alors que les deux avaient été écrits par analogie l'un avec l'autre sans vérification individuelle. Corrigé après vérification directe via `gh api repos/OJ/gobuster/releases/tags/<version>`. Leçon : vérifier le nommage réel de chaque outil individuellement via l'API GitHub avant de l'écrire dans le Dockerfile, ne jamais supposer qu'un outil suit le même schéma qu'un autre du même Dockerfile.
-2. **Le budget RAM, pas seulement le budget disque, est une contrainte réelle.** `qwen3.5:9b` (6.6 Go sur disque, confirmé) a occupé la quasi-totalité de la RAM disponible sur une machine à 8 Go : les logs Ollama ont rapporté `total="7.4 GiB" available="7.0 GiB"` en calcul CPU, laissant peu de marge pour le reste de la pile (conteneur `framework`, ChromaDB, processus d'outils nmap/gobuster/nikto/sqlmap, plus l'OS et Docker eux-mêmes). CLAUDE.md, section 8, ne budgétait jusqu'ici que l'espace disque (cible 8-10 Go) — un chiffre sous ce plafond ne garantit pas que le modèle par défaut tienne confortablement en RAM. Correction : `qwen3.5:4b` (3.4 Go sur disque, confirmé via `ollama.com/library`) recommandé et documenté (CLAUDE.md, section 3) pour toute machine à ~8 Go de RAM totale ; il dépasserait déjà `qwen3:8b` sur le benchmark d'appel d'outils cité en section 3, pour moins de la moitié de sa RAM estimée. Aucun changement de code necessaire, seul `OLLAMA_MODEL_MAIN` change.
-3. **Faux CRITICAL confirmé sur la propre cible du framework, cible mal choisie + bug de parsing combinés.** Une mission a ciblé l'IP LAN de la machine hôte (conseillée pour atteindre DVWA publié sur cette même machine) ; `nmap` y a trouvé le port 8000 ouvert — celui du framework lui-même, pas DVWA sur 8080, jamais atteint. `exploit_agent` a alors testé `http://<host>:8000/?id=1` (sa propre route racine) avec `sqlmap`, qui a rapporté un résultat négatif ("parameter 'id' is NOT injectable"). Le parsing de `tools/sqlmap_tool.py` a neanmoins classe ce resultat "vulnerable" a cause d'un test bugue : `"parameter" in stdout and "injectable" in stdout`, vrai aussi bien pour un message positif que negatif. Resultat : un finding CRITICAL "Injection SQL confirmee" entierement fabrique, remonte jusqu'au badge de risque global. Corrige : un seul signal positif non ambigu (`"is vulnerable"` verifie ligne par ligne, jamais une combinaison de mots-cles independants sur toute la sortie). Voir CLAUDE.md, section 2, pour la regle generalisee.
-
-## 7. Comparaison avec un instantane v1 et adoptions (2026-09-18)
-
-L'utilisateur a fourni un instantané de son ancien projet v1 (`reference/v1-legacy-project/`, non versionné, hors du dépôt) pour comparaison. Ce n'est pas la v1 "finale corrigée" décrite en section 4 — son propre `docs/CHANGELOG-CORRECTIONS.md` liste des correctifs partiels, et plusieurs incidents documentés en section 4 sont encore présents tels quels dans cet instantané (`nmap_tool.py` sans `-Pn`, `sudo` inconditionnel, `cap_severity` toujours absent de 3 agents sur 5 sur cinq). À traiter comme une source d'idées, pas comme une référence à copier telle quelle. Six éléments ont été retenus et portés dans ce dépôt :
-
-- **Note de transparence sur plafonnement** (`core/state.py::Finding.__post_init__`) : quand `cap_severity` réduit effectivement une sévérité, une note visible est maintenant ajoutée à la description du finding plutôt qu'un plafonnement silencieux.
-- **Contexte partagé entre phases** (`MissionState.scratch`) : `enum_agent` publie les URLs accessibles découvertes, `exploit_agent` les consomme directement au lieu de re-parcourir `tool_results` à l'aveugle.
-- **Diffusion en continu** (`core/orchestrator.py::run_mission`) : passage de `graph.ainvoke` à `graph.astream(..., stream_mode="values")` avec un callback `on_progress`, pour que le dashboard reçoive une mise à jour après chaque phase plutôt qu'une seule fois à la fin.
-- **Énumération DNS en reconnaissance** (`agents/recon_agent.py`) : `dnspython` était déjà une dépendance déclarée (CLAUDE.md section 8) mais jamais utilisée ; ajout d'un reverse DNS (PTR) sur IP, ou A/MX/NS sur nom d'hôte, toujours en `Lead`, jamais en `Finding`. Piège rencontré immédiatement en testant ce point : `dns.resolver.Resolver().resolve()` est synchrone/bloquant ; un premier appel direct depuis la coroutine de l'agent gelait toute la boucle asyncio (donc l'API et le dashboard, pas seulement la mission) jusqu'à expiration du délai DNS. Corrigé avec `asyncio.to_thread`. Voir CLAUDE.md, section 2.
-- **Annulation de mission** (`api/routes/missions.py`) : passage de `BackgroundTasks` à `asyncio.create_task` avec un registre `_running_tasks`, ajout de `POST /{id}/abort` et `DELETE /{id}` (409 si en cours). C'est directement le gap ressenti dans cette session : sans handle sur la tâche, la seule façon d'arrêter une mission en cours était de tuer tout le conteneur. Nuance testée en conditions réelles : l'annulation est prise en compte au prochain point d'`await` réellement asynchrone, pas instantanément — un appel bloquant déjà en cours (ex. `dns.resolver` dans un `asyncio.to_thread`) continue jusqu'à son propre délai avant que l'annulation ne soit livrée à la coroutine. `tools/base.py::_run` intercepte désormais `CancelledError` pour tuer explicitement le sous-processus externe (nmap, gobuster, ...) en cours plutôt que de le laisser orphelin ; c'est le chemin le plus fréquent pendant une mission réelle et il réagit promptement.
-- **Garde-fou de périmètre optionnel** (`core/state.py::is_target_in_allowed_ranges`, `ALLOWED_TARGET_RANGES`) : désactivé par défaut (le MVP doit fonctionner contre une cible externe quelconque, donc pas de restriction implicite aux plages privées), activable pour verrouiller ses propres missions à un laboratoire connu.
-
-Écarté de cette v1 sans remplacement : `evasion_level` (hors périmètre MVP, voir `PROJECT.md`) et la config spéculative (`hydra_path`, `masscan_path`, etc., sans outil correspondant).
-
-Le routage de phase piloté par LLM avait d'abord été écarté sans être proposé comme choix à l'utilisateur — corrigé après qu'il a fait remarquer que l'adaptation dynamique aux constatations faisait partie de l'objectif initial. Adopté sous une forme moins coûteuse que celle de v1 : au lieu d'un appel LLM dédié avant chaque transition (l'hypothèse la plus probable derrière le "~95% du temps en inférence" de la section 5), chaque agent (recon/enum/exploit) ajoute simplement un champ `next_phase_suggestion` au JSON de son résumé de fin de phase déjà existant - aucun appel d'inférence supplémentaire. `core/orchestrator.py::_route` lit `MissionState.last_decision` (champ du schéma jusque-là jamais utilisé) en priorité sur l'ordre linéaire par défaut, mais `enforce_progression` reste seul juge final, exactement comme avant. Une suggestion peut faire sauter une phase intermédiaire (ex. recon → exploit directement) ; si rien ne la recontourne ensuite, le filet de sécurité y revient de lui-même dès que cette phase redevient "la première non terminée" - testé explicitement (`tests/test_orchestrator.py`).
-
-Le dashboard a ensuite été entièrement reconstruit (`templates/dashboard.html`) avec l'esthétique "command center" sombre de v1 (police Orbitron/Share Tech Mono, disposition trois colonnes, piste de progression par phase, cartes de statistiques par sévérité, onglets findings/pistes/chaîne d'attaque/info, flux d'activité en direct) sans toucher à l'orchestrateur, aux agents ni au cœur déterministe — le seul changement backend est additif (`_mission_summary` renvoie des clés supplémentaires : `attack_chain`, `operator`, détail enrichi des findings/leads/cible), donc aucun test existant n'a pu casser. Simplifications délibérées par rapport à v1 : pas de curseur `evasion_level` (aucun champ correspondant, hors périmètre MVP), un seul formulaire de création de mission au lieu du doublon formulaire-rapide + modal de v1, et un flux d'activité synthétisé côté client par comparaison successive des réponses de l'API plutôt que les types d'événements WebSocket granulaires de v1 (finding/step/log séparés).
-
-## 8. Cible DVWA injoignable : liaison de port en boucle locale (2026-09-18)
-
-Une mission ciblant l'IP LAN de la machine hôte n'a trouvé que le port du framework lui-même (8000), jamais DVWA sur 8080, alors que DVWA tournait bien en conteneur sur la même machine. Cause : le compose de DVWA (fourni par l'utilisateur, hors de ce dépôt) publiait le port avec `"127.0.0.1:8080:80"`. Ce préfixe restreint la publication à l'interface de boucle locale **de la machine hôte** ; le trafic venant d'un autre conteneur (le `framework`) et arrivant sur l'IP LAN réelle de l'hôte n'est jamais transmis à un socket lié uniquement à `127.0.0.1`. Ce n'est pas un bug du framework — `nmap` voit bien ce port comme fermé depuis ce point de vue, ce qui est la vérité pour ce chemin réseau précis. Deux corrections possibles, communiquées à l'utilisateur sans en imposer une : retirer le préfixe `127.0.0.1:` (simple, mais expose DVWA à tout le LAN) ou connecter le conteneur `framework` au réseau Docker de DVWA et cibler par nom de service (garde DVWA en boucle locale uniquement, ne nécessite aucun port dans le champ cible puisque le scan complet de `recon_agent` trouve le port interne réel). Retenu pour mémoire : lors de la configuration d'une cible de test en conteneur, toujours vérifier le binding d'interface du port publié, pas seulement qu'il est publié.
-
-## 9. Comparaison avec un instantané v0 et adoptions (2026-09-18)
-
-`reference/v0-legacy-project/` (non versionné, hors du dépôt) est un instantané encore antérieur à v1 — avant même l'introduction de Docker. Plus volumineux que v1 (~8000 lignes) et accompagné de 21 paires de rapports réels (html+pdf), un échantillon bien plus riche que les deux PDF de v1. Quatre éléments retenus, aucun ne recoupant ce qui avait déjà été adopté de v1 :
-
-- **Dédoublonnage des findings/leads** (`core/state.py::MissionState.add_finding`/`add_lead`) : clé normalisée (titre, composant affecté, sévérité) pour les findings, (titre, source) pour les leads. Un même outil peut resignaler la même chose deux fois dans une mission ; ni v1 ni ce dépôt ne s'en protégeaient avant cela — la propre suite de tests de v0 (`TestFindingDeduplication`, `TestDedupTrailingSlash`) montre qu'ils l'ont réellement rencontré en pratique.
-- **Extraction JSON robuste** (`agents/base_agent.py::_extract_json`) : cloisons markdown retirées, `json.loads(..., strict=False)` (tolère les caractères de contrôle littéraux, cause fréquente d'échec sur un petit modèle), isolation par comptage d'accolades si du texte parasite suit le JSON, nettoyage des virgules traînantes en dernier recours. Remplace un simple regex + un essai `json.loads` unique. Renforce directement la fiabilité des leads, résumés et `next_phase_suggestion` déjà construits cette session, qui dégradaient silencieusement en `{}` sur un échec de parsing.
-- **`recursion_limit` explicite** passé à `graph.astream()` (`core/orchestrator.py::run_mission`), en plus du compteur `orchestration_cycles` déjà existant — évite de dépendre implicitement de la limite par défaut non documentée de LangGraph.
-- **`GET /health`** (`main.py`) : vérifie la connectivité Ollama et l'expose au dashboard, dont le voyant de statut ne reflétait jusque-là que la connexion WebSocket — aucun signal visible n'existait quand Ollama est injoignable, alors que chaque `ask_llm` dégrade silencieusement en `{}` dans ce cas.
-
-Deux constats notés mais non portés : v0 laisse le LLM rédiger le contenu des findings directement (titre, description, sévérité), ce qui l'a obligé à construire une machinerie de recoupement "vérité terrain" élaborée dans `enum_agent` pour rattraper les cas où le texte du LLM ne correspond pas aux codes de statut réels des outils — v2 évite cette classe entière de bug par construction, puisqu'aucun agent ne laisse jamais le LLM écrire le contenu d'un finding. Et un rapport réel échantillonné montre un résumé exécutif rédigé par le LLM annonçant "trois vulnérabilités critiques" alors que les données structurées ne contenaient aucun CRITICAL — le badge et le tableau déterministes étaient corrects, seul le texte libre exagérait ; aucun correctif structurel simple n'existe pour ce point précis, à garder en tête comme angle mort connu.
-
-## 10. Regression du routage LLM en deploiement reel, et enrichissement du rapport (2026-09-18)
-
-**Ordre des phases rompu par une suggestion de saut.** Une mission reelle a execute les phases dans l'ordre recon, exploit, enum, postexploit, report au lieu de l'ordre lineaire attendu. Cause confirmee : la suggestion `next_phase_suggestion` de recon (section 7 ci-dessus) proposait "exploit", saut honore par `enforce_progression` puisque seul le cas "deja terminee" etait bloque, pas le saut en avant vers une phase jamais executee. Le filet de securite avait bien rattrape "enum" plus tard (comportement documente et teste a l'epoque), mais le mal etait fait : `exploit_agent` s'execute en s'appuyant sur `state.scratch["enum"]["candidate_urls"]`, absent puisque enum n'avait pas encore tourne — l'agent est retombe sur son repli generique (`/?id=1` par port HTTP) au lieu de tester les vrais chemins avec parametres qu'aurait decouverts l'enumeration, reduisant reellement le nombre de vecteurs testes. Corrige : `enforce_progression` (`core/state.py`) n'honore plus desormais qu'un saut direct vers "report" (fin anticipee, jamais problematique puisque rien en aval n'en depend) ; toute autre suggestion de saut est redirigee vers la vraie phase suivante. Les prompts de recon/enum/exploit ont ete reformules pour ne plus inviter une suggestion qui serait de toute facon rejetee. Tests mis a jour en consequence (`test_enforce_progression_rejects_a_forward_skip_suggestion`, `test_run_mission_rejects_a_forward_skip_suggestion`, plus un test dedie confirmant que le seul saut restant autorise - vers "report" - fonctionne toujours).
-
-**Rapport enrichi a partir du style v1.** L'utilisateur a trouve le rapport v2 (issu du premier gabarit minimal, section 10 de `CLAUDE.md`) moins complet et moins presentable que celui de v1. Lecture directe de `reference/v1-legacy-project/redteam-framework/templates/report.html` et `report_agent.py` (jamais faite en detail lors des comparaisons precedentes, qui n'avaient que survole ce fichier) : page de garde, resume executif + "risques principaux", grille de statistiques par severite, findings groupes par severite avec CVE/tags/recommandation, section pistes enrichie, chaine d'attaque en tableau, section recommandations (actions immediates + recommandation par finding), tableau de metadonnees techniques. Porte dans `templates/report.html` et `agents/report_agent.py` en conservant integralement l'architecture deterministe : `overall_risk` et le regroupement par severite restent calcules en code, jamais demandes au LLM ; seuls `executive_summary`, `key_risks` et `immediate_actions` viennent d'un unique appel LLM (memes garanties que l'ancien rapport), avec repli deterministe si le LLM ne repond rien d'exploitable (`ReportAgent._fallback_executive_summary`/`_fallback_immediate_actions`, ce dernier derive directement de `Finding.remediation` par ordre de severite). Gap decouvert en route : aucun agent ne renseignait `Finding.remediation` avant cela, le champ existait mais restait toujours vide — une section "recommandations par finding" aurait donc ete vide quelle que soit la richesse du gabarit. Corrige en ajoutant un texte de remediation generique et deterministe (jamais redige par le LLM) a chaque site de creation de finding : script nmap-vuln, chemins refuses consolides, chemins accessibles, constatations Nikto, injection SQL confirmee.
-
-## 11. Exploit aveugle contre une cible authentifiee (DVWA) et ajout d'un cookie de session (2026-09-18)
-
-Meme apres les deux corrections precedentes, un rapport reel contre DVWA (192.168.1.33:8000 et :8080) n'a produit aucun finding d'exploitation malgre 2 executions de sqlmap (une par port HTTP). Diagnostic a partir du nombre d'outils executes (11 = 3 nmap + 3x2 enum + 2 sqlmap, coherent avec un repli generique par port plutot qu'une URL reellement decouverte) : `exploit_agent._candidate_urls()` ne retient que les chemins d'`enum` contenant un `?` (parametre de requete), or `gobuster`/`ffuf` avec une wordlist standard (`common.txt`) ne produisent jamais de chemins avec parametres - seulement des segments de chemin (`/login.php`, `/admin`). Le filtre est donc systematiquement vide en pratique, et exploit retombe toujours sur sa supposition generique `/?id=1` sur la racine. Meme en trouvant une vraie page, DVWA exige une authentification par formulaire puis un cookie `security=low` avant que ses pages vulnerables (`/vulnerabilities/sqli/?id=...`) ne repondent - aucune wordlist generique ne les decouvrira, et le framework n'avait jusqu'ici aucun moyen de s'authentifier.
-
-Corrige par l'ajout d'un `session_cookie` optionnel (`Target.session_cookie`, `MissionCreateRequest.session_cookie`) : l'operateur se connecte une fois via un navigateur (et regle le niveau de securite de DVWA sur "low"), colle le cookie obtenu dans le formulaire de mission, et ce cookie est transmis tel quel a `gobuster -c`, `ffuf -b`, `nikto -Header "Cookie: ..."` et `sqlmap --cookie` - les flags natifs de chaque outil, sans aucune automatisation de connexion ni extraction de jeton CSRF cote framework. Choix deliberement plus simple qu'une automatisation generique du formulaire de connexion : chaque application gere son flux de connexion differemment (jetons CSRF, etapes multiples, MFA), alors qu'un cookie de session est la maniere standard dont un testeur d'intrusion mene deja un scan authentifie manuellement. Le cookie n'est jamais expose en clair dans une reponse API ou un rapport - seul un indicateur booleen `authenticated`/"Session authentifiee" est affiche. Cela ne resout qu'une partie du probleme : voir la discussion sur les outils/vecteurs additionnels a envisager (crawler HTML, `nuclei`, vecteurs XSS/RCE/upload) pour une couverture complete de DVWA.
-
-## 12. Echec de generation PDF : incompatibilite WeasyPrint/pydyf (2026-09-18)
-
-Un rapport reel a echoue a la generation PDF (repli HTML) avec `'super' object has no attribute 'transform'`. Confirme par recherche : incident connu ([Kozea/WeasyPrint#2620](https://github.com/Kozea/WeasyPrint/issues/2620)) - `weasyprint==62.3` (epingle initialement) n'impose aucune borne superieure sur sa dependance `pydyf`, donc `pip install` recupere une version recente de `pydyf` (>= 0.11.0) dont l'API a change (`Stream.transform` renomme/retire), incompatible avec le code de WeasyPrint 62.x qui l'appelle encore via `super().transform(...)`. Corrige par la bonne methode (corriger en avant, pas epingler une vieille dependance indefiniment) : `requirements.txt` passe a `weasyprint==70.0`, version ou le bug est resolu cote WeasyPrint lui-meme, en plus d'inclure un correctif de securite recent (CVE-2026-55073). Non entierement verifiable sur la machine de developpement Windows utilisee pour cette session : elle n'a jamais eu les bibliotheques natives Pango/GObject installees du tout (echec different, deja documente ailleurs), donc seule l'installation propre de `weasyprint==70.0` + `pydyf==0.12.1` sans conflit de dependances a pu etre confirmee ici - la generation PDF reelle doit etre revalidee dans le conteneur (qui a bien les bibliotheques natives via le Dockerfile).
-
-## 13. Crawler HTML : trouver de vraies pages avec parametres (2026-09-18)
-
-Suite a l'ajout du cookie de session (section 11), le blocage restant pour atteindre les pages vulnerables de DVWA : `gobuster`/`ffuf` avec une wordlist standard ne devinent que des segments de chemin (`/login.php`, `/admin`), jamais les parametres qu'une page attend reellement (`/vulnerabilities/sqli/?id=1`). Ajout de `tools/crawler_tool.py` : client HTTP asynchrone (httpx, deja une dependance) qui suit les liens `<a href>` du meme hote et synthetise une URL testable a partir des champs de chaque `<form>` rencontre - un formulaire GET devient une URL avec parametres (reutilise le pipeline `candidate_urls` existant), un formulaire POST est conserve a part (`state.scratch["enum"]["post_forms"]`) car `sqlmap` le teste via `--data`, jamais via une URL simple. N'herite pas de `BaseTool` : ce n'est pas un sous-processus externe, la mecanique `build_command`/`_run` autour d'un binaire CLI ne s'applique pas. `agents/exploit_agent.py` a ete factorise (`_test_sqlmap`) pour tester les deux types de candidats (URLs et formulaires POST) sans dupliquer la logique de creation du finding. Nouvelle dependance : `beautifulsoup4` (backend `html.parser` pur, pas de `lxml`/extension C, coherent avec l'absence de dependances lourdes du projet).
-
-## 14. `nuclei` et bug decouvert sur la note de transparence de plafonnement (2026-09-18)
-
-Ajout de `tools/nuclei_tool.py` : couverture large de motifs connus (identifiants par defaut, panels exposes, en-tetes de securite, CVE courantes) via des templates communautaires, chaque correspondance portant sa propre preuve (commande curl de reproduction). Nommage des assets de release verifie via l'API GitHub avant ecriture (`nuclei_<version>_linux_<arch>.zip` - un `.zip`, contrairement au `.tar.gz` de gobuster/ffuf, d'ou l'ajout de `unzip` au Dockerfile) et flags CLI confirmes via la documentation officielle (`-jsonl` pour la sortie, `-H` pour un en-tete personnalise - nuclei n'a pas de flag cookie dedie, contrairement a gobuster/ffuf/sqlmap). Wire dans `enum_agent.py`, un `Finding` par correspondance (pas de consolidation type `consolidate_denied_paths` : des templates differents sont des problemes distincts, pas du bruit repete).
-
-**Bug reel decouvert en testant l'integration.** Un match nuclei "critical" etait bien plafonne a MEDIUM (`cap_severity` fonctionnait), mais la note de transparence ajoutee a la section 7 (v1) ne s'affichait jamais. Cause : chaque agent appelait `cap_severity(...)` lui-meme *avant* de construire le `Finding`, si bien que `Finding.__post_init__` recevait deja une severite pre-plafonnee - `requested_severity == self.severity` en interne, donc aucun ecart a signaler, meme quand un plafonnement reel venait bien d'avoir lieu une etape plus tot. La note ne pouvait donc jamais se declencher en fonctionnement normal, seulement dans le cas de defense en profondeur ou un agent oublierait l'appel explicite (exactement l'incident #10 - le cas qu'on espere ne jamais voir se produire). Corrige en retirant l'appel explicite `cap_severity(...)` de tous les sites de construction de `Finding` (`recon_agent.py`, `enum_agent.py`, `exploit_agent.py`) : les agents passent desormais la severite "voulue" telle quelle, et `Finding.__post_init__` reste l'unique point d'application, structurellement impossible a contourner. CLAUDE.md, section 2 et section 10, mis a jour pour refleter que le plafonnement n'est plus une discipline attendue de chaque agent mais une garantie structurelle unique - un renforcement, pas un assouplissement.
-
-## 15. `dalfox` (XSS) et `commix` (injection de commandes) (2026-09-18)
-
-Derniere piece du plan d'elargissement des vecteurs d'exploitation au-dela de la seule injection SQL. Les deux nommages/flags CLI ont ete verifies avant ecriture, pas supposes :
-
-- **`dalfox`** : sous-commande `scan`, `-f jsonl` pour la sortie JSON Lines, `--headers "Cookie: ..."` (pas de flag cookie dedie, comme nuclei). dalfox n'imprime une entree JSON que pour une vulnerabilite reellement confirmee (contrairement a sqlmap/commix qui impriment un diagnostic quel que soit le resultat) : "au moins une entree parsee" est donc un signal positif fiable ici, sans avoir besoin d'un mot-cle positif explicite. Nommage des assets de release verifie via l'API GitHub : `dalfox-vX.Y.Z-linux-x86_64.tar.gz` (le "v" du tag est conserve dans le nom de fichier, contrairement a `ffuf`) et `aarch64` plutot que `arm64` pour la variante ARM - un quatrieme schema de nommage different des trois autres outils bases sur des binaires Go de ce Dockerfile.
-- **`commix`** : architecture et conventions CLI directement inspirees de sqlmap (memes auteurs de convention), confirme en lisant le code source (`src/core/parse/cmdline.py` pour les flags `-u`/`--url`, `--batch`, `--cookie`, `--data` ; `src/core/controller/checks.py` pour le signal positif exact) plutot que suppose par analogie. Signal positif : la phrase exacte `"is vulnerable"` (comme sqlmap) ; le cas negatif utilise explicitement `"false positive"`/`"unexploitable"`, jamais cette phrase - meme piege que celui corrige sur sqlmap (section 6) evite des le depart ici.
-
-Les deux sont testes dans `exploit_agent.py` aux cotes de sqlmap, sur les memes candidats (`candidate_urls` et `post_forms` decouverts par enum/crawler), avec la meme regle sans exception : `exploited=True` uniquement sur confirmation de l'outil, jamais sur l'avis du LLM. `dalfox` n'est pas applique aux formulaires POST (pas de flag de payload POST brut confirme pour ce cas d'usage - laisse hors perimetre plutot que de deviner un flag non verifie).
-
-**Echec de build reel : structure interne de l'archive dalfox non verifiee.** Le nom de l'asset et le nommage par architecture avaient ete confirmes via l'API GitHub, mais pas la structure interne de l'archive - `tar -xzf ... dalfox` a echoue avec `tar: dalfox: Not found in archive`. Cause : contrairement a gobuster/ffuf/nuclei qui placent leur binaire a la racine de l'archive, dalfox l'imbrique dans un sous-dossier versionne (`dalfox-v3.2.3-linux-x86_64/dalfox`). Corrige avec `tar --strip-components=1` vers un dossier d'extraction dedie plutot qu'un nom de fichier fixe - robuste independamment du nom exact du sous-dossier, et verifie manuellement avant de repousser le correctif (extraction reelle testee, binaire confirme ELF x86-64 valide). Lecon generalisee dans CLAUDE.md, section 2 : verifier le nom de l'asset ET la structure interne de l'archive, pas seulement l'un des deux.
-
-Delibere hors perimetre pour ce tour (decision prise avec l'utilisateur) : les vulnerabilites de televersement de fichiers et d'inclusion de fichiers n'ont pas d'outil dedie equivalent a sqlmap/dalfox/commix ; l'inclusion de fichiers (LFI/RFI) est deja partiellement couverte par les templates `nuclei` existants, et le televersement necessite une logique specifique a chaque application qui ne se generalise pas proprement.
-
-## 16. Faux CRITICAL confirme sur dalfox : documentation generique perimee (2026-09-18)
-
-Une mission reelle contre DVWA (authentifiee via cookie de session, crawler et nuclei fonctionnels) a produit deux `CRITICAL "XSS confirmee"` fabriques, avec des champs `PREUVE` vides (`param= payload=`) - signe immediat que quelque chose clochait dans le parsing, pas dans dalfox lui-meme.
-
-**Cause racine.** La documentation consultee avant d'ecrire `tools/dalfox_tool.py` (recherche web generale, pas le code source) decrivait l'ancienne CLI Go de dalfox. Le depot `hahwul/dalfox` a depuis ete entierement reecrit en Rust (confirme via `gh api repos/hahwul/dalfox --jq .language`) : le champ JSON `"type"` y est un enum a quatre valeurs (`src/scanning/result/mod.rs`, lu directement) - `"V"` (Verified, seule confirmation exploitable reelle), `"R"` (Reflected, "not a vulnerability assertion" selon la doc du projet lui-meme), `"A"` (detection DOM XSS par analyse statique, une etiquette de methode) et `"I"` (Informational, ex. bibliotheque obsolete). Le code initial traitait "toute ligne JSON parsee" comme une confirmation (`vulnerable = bool(findings)`), sans jamais verifier ce champ - exactement la meme classe de bug que le faux positif sqlmap (section 6), mais provoquee cette fois par une documentation externe perimee plutot que par un raccourci de logique.
-
-**Corrige** en filtrant strictement sur `type == "V"` pour un `Finding` confirme (`exploited=True`), et en promouvant `type == "R"` (reflete, non confirme) en `Lead` - une piste a verifier manuellement, jamais un finding note, sur le meme modele que le guess OS a faible confiance dans `recon_agent.py`. `"A"` et `"I"` sont ignores (ni preuve, ni piste actionnable pour ce projet). Flag cookie egalement corrige au passage : `--cookies` (documente dans la reference CLI actuelle du depot), pas `--headers "Cookie: ..."` qui appartenait a l'ancienne CLI.
-
-**Lecon generalisee.** Une documentation externe (web, README, aide generique) peut decrire une version perimee d'un outil qui a change de langage d'implementation entre-temps - toujours verifier `gh api repos/<owner>/<repo> --jq '.language'` et lire le code source reel du champ qui determine un signal positif/negatif avant d'ecrire un parser, pas seulement ses flags CLI. Voir CLAUDE.md, section 2.
-
-## 17. Trois anomalies de la meme mission authentifiee : feed incomplet, chaine d'attaque vide, faux finding nikto (2026-09-18)
-
-Une mission suivante contre la meme cible (DVWA, cookie de session) a fait remonter trois symptomes distincts en une seule iteration.
-
-**1. Ligne `[EXPLOIT] Phase terminee` absente du direct.** `templates/dashboard.html::_diffAndLog` ne journalisait que la DERNIERE phase nouvellement terminee a chaque sondage (`(data.completed_phases||[])[cur.completed_phases - 1]`), contrairement aux branches `findings`/`errors` du meme code qui bouclaient deja sur `.slice(prev).forEach(...)`. Quand `exploit` (rien a signaler, donc rapide) et `postexploit` se terminaient dans la meme fenetre de sondage, seule la ligne de `postexploit` survivait. Corrige en bouclant sur toutes les phases nouvellement terminees, comme les autres branches.
-
-**2. Cellule "exploit" vide dans le tableau de la chaine d'attaque.** `recon_agent.py`, `enum_agent.py` et `exploit_agent.py` ecrivaient `llm_summary.get("summary", "")` sans repli : quand l'appel de resume du LLM en fin de phase ne renvoyait rien d'exploitable, la cellule s'affichait vide. `postexploit_agent.py` avait deja un repli deterministe pour son cas "rien d'exploite" ; le meme principe a ete applique aux trois autres agents (ex. exploit : `"Aucune vulnerabilite confirmee par preuve d'outil sur les vecteurs testes (sqlmap, dalfox, commix)."` quand ni le LLM ni un exploit reel n'ont produit de texte). Le symptome existait deja dans le rapport de la section 16 (ligne 5 "exploit" vide), simplement masque par les deux findings dalfox fabriques a cote.
-
-**3. Faux finding MEDIUM "Constatations Nikto" avec preuve `requires a value`.** Root-cause la plus serieuse des trois : `tools/nikto_tool.py` passait `-Header "Cookie: ..."` pour l'authentification, or nikto 2.5.0 **n'a pas d'option `-Header`** (verifie dans le `GetOptions` reel de `program/plugins/nikto_core.plugin` du depot `sullo/nikto`, tag `2.5.0` - absente de la liste complete). Une option CLI invalide fait echouer `GetOptions` et appeler `usage()`, qui affiche l'ecran d'aide complet puis `exit $is_failure` avec `$is_failure` non defini (`shift` sur une liste vide) - numifie a `0` en Perl, donc percu comme un **succes** cote `is_success()`. La derniere ligne de cet ecran d'aide (`+ requires a value`, legende expliquant le suffixe `+` utilise dans toute la liste d'options) commence par `"+ "` et passait donc le filtre de `parse_output`, devenant un "finding" nikto generique et fabrique - a chaque mission authentifiee, sur chaque port HTTP, sans jamais qu'aucune erreur ne soit journalisee nulle part (code de sortie 0). Aucun scan nikto reel n'a jamais eu lieu sur une cible authentifiee jusqu'a ce correctif.
-Corrige en utilisant le mecanisme reellement documente (`nikto.conf.default`, cle `STATIC-COOKIE`) via `-Option "STATIC-COOKIE=..."` (le seul flag qui permette de surcharger une cle de config en ligne de commande, en coupant uniquement sur le premier `=`), avec chaque paire `nom=valeur` entre guillemets et separee par `;` pour un cookie a plusieurs valeurs. `parse_output` filtre desormais explicitement `"+ requires a value"` en filet de securite si une future option invalide refait tomber nikto dans `usage()`.
-
-**Lecon generalisee.** Un outil qui echoue silencieusement au niveau de l'analyse de ses propres arguments (code de sortie 0 malgre une CLI invalide) est un piege plus dangereux qu'un plantage franc : rien ne le signale nulle part dans l'etat de la mission. La meme discipline de verification que pour dalfox (section 16) s'applique aux flags CLI, pas seulement au format de sortie : lire le `GetOptions`/parseur d'arguments reel de l'outil avant d'assembler une commande, jamais deviner un nom de flag par analogie avec un autre outil (`-Header` existe chez d'autres scanners, pas chez nikto).
-
-## 18. Reduction du temps de mission : concurrence intra-phase et bornes de performance (2026-09-18)
-
-Des missions reelles contre DVWA (nikto desormais fonctionnel, section 17) ont pris 71 a 87 minutes chacune - trop long pour iterer. Aucun de ces changements ne modifie ce qu'un outil trouve, seulement combien de temps une mission met a le trouver.
-
-**Cause structurelle principale : tout tournait en sequence alors que la plupart des etapes sont independantes.** `enum_agent.py` attendait gobuster, puis ffuf, puis nikto, puis le crawler, puis nuclei, l'un apres l'autre, deux fois (une fois par port HTTP) - 10 sous-processus externes enchaines alors qu'aucun des 5 outils d'un meme port ne lit la sortie d'un autre. Meme constat dans `exploit_agent.py` : sqlmap, dalfox et commix s'enchainaient sequentiellement pour chaque URL candidate, et une mission authentifiee avec un crawl riche peut produire plusieurs dizaines d'URLs candidates. Corrige avec `asyncio.gather()` : les 5 outils d'un port s'executent desormais en parallele dans `enum_agent.py`, et les 3 vecteurs d'une URL en parallele dans `exploit_agent.py`, avec un `asyncio.Semaphore` (`EXPLOIT_MAX_CONCURRENT_URLS`, defaut 5) pour ne jamais lancer une rafale illimitee de sous-processus si `candidate_urls` est long. `asyncio.gather()` renvoie ses resultats dans l'ordre des taches passees, pas dans l'ordre de fin - le traitement des resultats reste donc deterministe et les tests existants n'ont pas eu besoin d'etre reecrits, seulement completes (`agent._settings` n'existait pas sur les agents construits via `__new__()` dans les tests, necessaire depuis que `exploit_agent.py` lit `self._settings.exploit_max_concurrent_urls`).
-
-**nmap `-p-` reste complet, mais accelere.** Le scan de ports (`-p- -sV`) est le seul a balayer les 65535 ports - necessaire pour le critere de validation MVP sur un port non standard (CLAUDE.md, section 11) - et ne doit donc jamais perdre en portee pour gagner du temps. `-T4 --min-rate 1000` accelerent ce meme scan complet sans en reduire la couverture (`docker-compose`/l'environnement reseau reel decidera si cette agressivite est adaptee ; a revoir si un IDS/IPS de la cible commence a droper des paquets a ce debit).
-
-**nikto sans borne de pire cas.** Nikto n'a jamais de limite de temps par defaut et peut legitimement prendre plusieurs minutes sur un site verbeux. Son propre flag `-maxtime` (deja repere en lisant son `usage()`, section 17) est maintenant systematiquement passe (`NIKTO_MAX_TIME`, defaut `180s`) : borne le pire cas, ne change rien sur une cible normale qui termine avant.
-
-**gobuster/ffuf a faible parallelisme interne.** Les deux tournaient avec leurs defauts conservateurs (10 et 40 threads) hors de tout contexte de charge partagee. Passes a 50/80 threads chacun, un choix raisonnable maintenant qu'ils s'executent de toute facon en parallele l'un de l'autre (et de nikto/crawler/nuclei) plutot que seuls.
-
-**Appel LLM sans plafond de generation ni delai de securite.** Chaque prompt de ce projet demande explicitement un JSON court (quelques phrases, quelques listes courtes), mais `ChatOllama` n'avait ni `num_predict` ni timeout : un modele local CPU-only qui derape sur une generation plus longue que necessaire n'avait aucune borne, et un appel bloque aurait pu geler une phase indefiniment. Ajout de `num_predict` (`LLM_NUM_PREDICT`, defaut 512) et de `client_kwargs={"timeout": ...}` (`LLM_TIMEOUT_SECONDS`, defaut 180s, transmis au client `ollama` sous-jacent lui-meme base sur httpx) dans `agents/base_agent.py`.
-
-**Lecon generalisee.** La sequentialite immediate ("j'ecris `await` a chaque etape") est souvent un choix par defaut, pas une necessite : verifier quelles etapes dependent reellement du resultat d'une autre avant de les enchainer. Ici, aucune ne l'etait a l'interieur d'une phase - seul l'ordre ENTRE phases (recon avant enum avant exploit) est une vraie dependance, deja protegee par `enforce_progression`.
-
-## 19. Mission reelle post-concurrence : premiers vrais exploits confirmes, et une URL candidate testee deux fois (2026-09-18/19)
-
-Premiere mission complete apres la section 18 : 25m14s (contre 71-87 minutes avant), et surtout les premiers vrais exploits confirmes par preuve d'outil sur DVWA (3 injections SQL via sqlmap, 2 XSS via dalfox type `V`, cinq CRITICAL corrects, tous dedoublonnes correctement dans les findings). La session cookie/crawl authentifie fonctionnent enfin ensemble comme prevu (hypothese de la section 17 confirmee).
-
-**Mais la chaine d'attaque montrait deux entrees dalfox identiques** pour les deux memes URLs XSS exploitees (`fi/?page=file3.php` et `xss_r/?name=1`), alors que les findings eux-memes restaient corrects (un seul CRITICAL chacun, grace au dedoublonnage de `add_finding`). Cause : `exploit_agent.py::run()` appelait `self._candidate_urls(state)` a chaque iteration de sa boucle sur les ports HTTP de la cible, alors que cette methode renvoie deja la liste COMPLETE des URLs candidates agregees par `enum_agent.py` sur TOUS les ports HTTP a la fois (chaque URL porte deja son propre scheme/host/port). Avec 2 ports HTTP correspondants (8000 et 8080), la liste entiere de candidats etait donc retestee deux fois - une fois par port - un bug preexistant a la section 18 (present dans le code sequentiel d'origine aussi), simplement invisible avant parce qu'aucune vraie vulnerabilite n'avait encore ete confirmee pour le rendre visible dans la chaine d'attaque (qui n'est jamais dedoublonnee, contrairement aux findings/leads).
-
-**Corrige** en separant les candidats deja absolus (cas normal, testes une seule fois quel que soit le nombre de ports HTTP) des chemins relatifs issus du repli legacy `tool_results` (testes par port faute de connaitre leur port d'origine, comportement historique inchange). Le gain n'est pas que cosmetique : chaque doublon etait une vraie requete supplementaire envoyee a la cible en double, pas seulement une ligne de rapport en trop.
-
-**Lecon generalisee.** Une fonction qui agrege deja sur toute la portee pertinente (ici : tous les ports HTTP) ne doit jamais etre rappelee depuis l'interieur d'une boucle qui itere sur cette meme portee - le signe qu'un doublon existe peut rester invisible tant qu'aucun chemin de dedoublonnage en aval (ici, `add_finding`) ne le neutralise silencieusement ; toujours verifier le journal non dedoublonne (`attack_chain`) plutot que de se fier uniquement aux listes qui filtrent deja les doublons.
-
-## 20. Audit de securite du framework lui-meme (2026-09-19)
-
-Une fois le cycle offensif prouve correct sur plusieurs missions reelles (sections 17 a 19), audit explicitement differe depuis le debut de cette reconstruction (voir memoire de session) : le framework expose-t-il quelque chose qu'il ne devrait pas, est-il lui-meme vulnerable ?
-
-**Le plus consequent : aucune authentification sur l'API/dashboard, exposee sur toutes les interfaces reseau.** `docker-compose.yml` publie `"8000:8000"`, qui se lie par defaut a `0.0.0.0` cote hote - accessible depuis tout appareil du meme reseau que la machine de l'operateur, pas seulement `localhost`. Aucune route FastAPI n'exigeait quoi que ce soit avant ce correctif. `REQUIRE_AUTHORIZATION` ne verifie que la presence d'une chaine non vide dans `authorization_ref` - une note pour la tracabilite, jamais un controle technique. Combine, cela signifiait que quiconque atteint le port 8000 pouvait lancer une vraie mission (scan + exploitation) contre n'importe quelle cible de son choix, borne uniquement par `ALLOWED_TARGET_RANGES` (vide par defaut = sans restriction). Corrige avec une cle partagee optionnelle (`API_KEY`, vide par defaut pour ne pas casser un deploiement existant au premier pull) verifiee par une dependance FastAPI appliquee a chaque routeur `/api/*` (`api/dependencies.py::require_api_key`), acceptee via l'en-tete `X-API-Key` (fetch du dashboard) ou le parametre `?api_key=` (repli pour le lien `<a href>` de telechargement direct du rapport, qui ne peut pas poser d'en-tete personnalise). `/health` et le dashboard HTML lui-meme restent ouverts (aucune donnee sensible). Un avertissement est journalise au demarrage si `API_KEY` reste vide.
-
-**Cookie de session : aucune fuite confirmee, mais aucune garantie structurelle non plus.** L'API (`_mission_summary()`) et le rapport n'exposaient deja que `authenticated: bool(...)`, jamais le cookie brut - correct des la conception. Le `Cookie: ***` visible dans les preuves nuclei du PDF vient en realite de la redaction integree de nuclei lui-meme (verifie dans son code source, `pkg/output/output.go`), pas d'un mecanisme de ce projet. `sqlmap`/`dalfox`/`commix`/`nikto` n'ont aucune garantie equivalente sur leur sortie brute : rien n'empechait structurellement un mode verbeux ou un message d'erreur de ces outils d'echoer le cookie envoye dans un texte qui finit dans `Finding.evidence`/`description` ou `Lead.rationale`. Corrige en defense en profondeur : `MissionState.add_finding`/`add_lead` retirent desormais toute occurrence litterale du cookie de session de ces champs avant stockage, au meme point structurel unique que le dedoublonnage (meme pattern que `cap_severity`/`Finding.__post_init__`, section 2).
-
-**Differe volontairement, a documenter dans le README pour une reprise ulterieure plutot que traite ici :**
-- Le conteneur tourne en root (pas de directive `USER` dans le Dockerfile) - partiellement justifie (le scan SYN exige des sockets brutes), mais `NMAP_SCAN_MODE=connect` existe deja pour un fonctionnement sans privileges eleves si un passage a un utilisateur non-root est souhaite.
-- Aucun audit de vulnerabilites des dependances (`requirements.txt`) n'a ete effectue - necessiterait un acces reseau depuis l'environnement d'audit pour etre fait serieusement (ex. `pip-audit`).
-- Le websocket `/ws/missions` reste sans authentification (ne diffuse que `mission_id`/`status`/`current_agent`, pas de contenu sensible ; les navigateurs ne posent pas d'en-tete personnalise sur une connexion WebSocket, une protection cote query-param serait necessaire si jamais durcie).
-
-**Lecon generalisee.** Un outil de securite qui teste des cibles externes doit recevoir le meme niveau d'exigence sur sa propre surface d'exposition que celle qu'il audite chez les autres - l'absence totale d'authentification sur le plan de controle est exactement le type de finding "MEDIUM: en-tetes manquants" que ce framework signalerait lui-meme chez une cible, sauf qu'ici la consequence (lancer des attaques reelles pour un tiers non autorise) est bien plus grave qu'une fuite d'information.
+| Full recon, enum, exploit, postexploit, report cycle | Done | 5 agents orchestrated by a state graph (LangGraph), validated over several real runs against DVWA |
+| Dynamic adaptation to the target | Partial | The LLM adapts the enumeration/exploitation plan to the services found, bounded by deterministic rules |
+| Automatic PDF report generation | Done | Jinja2 to HTML then PDF (WeasyPrint), fixed structure, separate section for unconfirmed hypotheses |
+| 40-50% time reduction | Never measured | No timed comparison against a manual baseline |
+| 4 contribution axes | Refocused | Honest final scope: one central axis (deterministic reliability), two secondary axes delivered (full cycle, structured report), two axes out of scope (measured evasion, complete guardrails) |
+| Reliability despite an unreliable local LLM | Done, core of the project | Severity capping, consolidation, findings/leads separation, deterministic risk calculation: confirmed on real reports |
+| Infinite loop prevention | Done, fixed along the way | Cycle limit, completed-phase tracking, forced progression |
+| Working against targets outside the local network or in a container | Done, with a necessary fix | `nmap -Pn` essential |
+| Portable Docker deployment | Done, after a long series of fixes | See section 4 |
+| False-positive reduction | Done | 22 paths returning 401/403 consolidated into a single LOW finding |
+
+## 3. What was never done or validated
+
+- Generality across multiple targets or operating systems: validated on a
+  single target (DVWA), reproducibility demonstrated on only two repeated
+  runs.
+- Measured evasion against a real EDR/XDR: the parameter exists (levels 1 to
+  3), never tested under real detection conditions.
+- Complete ethical and legal guardrails: only a mandatory authorization
+  reference and logging exist.
+- `-sT` (connect scan) fallback for filtered targets: identified as
+  missing, never implemented in v1.
+- Reliable OS detection: `nmap -O` produced absurd results at high displayed
+  confidence on single-port targets.
+- Objective measurement of time saved compared to a manual audit.
+
+## 4. Docker incident log (the most time-costly part)
+
+Docker packaging was done after the application was built, not alongside
+it. Result: a long series of avoidable back-and-forth. In real chronological
+order:
+
+1. **Unpinned Docker base.** `python:3.11-slim` (with no Debian version)
+   changed major version under the project's feet along the way (switch to
+   Debian trixie), breaking the installation of packages that had worked
+   the day before. Fix: pin `python:3.11-slim-bookworm`.
+2. **`nikto` not found via apt.** On recent Debian, `nikto` simply isn't an
+   available package. Fix: GitHub clone + shell wrapper on the PATH.
+3. **`sqlmap`, same problem.** Same fix: GitHub clone + shell wrapper.
+4. **DNS broken inside the Docker build context**
+   (`Temporary failure resolving 'deb.debian.org'`) while the host machine
+   had working internet access. Cause: the Docker daemon had no working DNS
+   resolver configured. Host-side fix: `/etc/docker/daemon.json` with
+   `{"dns": ["8.8.8.8", "1.1.1.1"]}`, then `systemctl restart docker`.
+5. **Disk space exhausted during an Ollama image pull**
+   (`no space left on device`), caused by a `--no-cache` build cache never
+   cleaned up (`docker builder prune -af` alone freed more than 10 GB)
+   combined with an unnecessarily heavy Ollama image (CUDA libraries while
+   the machine ran CPU-only).
+6. **`gobuster` not found even though the image installed it.** The code
+   called the binary `gobuster3` (a leftover from an old naming
+   convention), the image installed `gobuster`. Result: silent failure of
+   the entire directory enumeration, no visible error log on the user
+   side. Temporary fix: a `gobuster3` symlink to `gobuster`. Clean fix for
+   v2: a single name everywhere, no symlink to maintain.
+7. **`nikto` failed silently in the container** (`Required module not
+   found: JSON` then `XML::Writer`): missing Perl modules (`libjson-perl`,
+   `libxml-writer-perl`), on top of `libnet-ssleay-perl` already present
+   for SSL. Added `libnet-ip-perl` as a precaution.
+8. **Empty reports in the container while the target responded perfectly
+   fine to manual `curl` and `nmap -Pn`.** Cause: `nmap` without `-Pn` does
+   its own host discovery (ping) before scanning ports. Across a Docker
+   bridge into a segmented network (Host-Only VMware in this case), ICMP is
+   commonly blocked, and the targeted service also ran on a non-standard
+   port (8888) that default discovery doesn't test. Result: nmap concluded
+   "host down" and skipped the port scan entirely. `-Pn` on every scan mode
+   (ports, vuln) fixed the problem outright.
+9. **`sudo nmap` failed in the container**: the slim image doesn't have
+   `sudo` installed, and the container already runs as root. Fix: `sudo`
+   only if `os.geteuid() != 0`.
+10. **A hallucinated CRITICAL that made it through the whole pipeline.**
+    Severity capping had been added to the enumeration agent but forgotten
+    on the reconnaissance agent. The LLM produced a fake finding "Apache
+    httpd vulnerable to Heartbleed, CVE-2014-0160" (an OpenSSL flaw,
+    unrelated to Apache httpd, on a version not exposed to it) classified
+    CRITICAL by the model itself, propagated as-is all the way to the
+    mission's overall risk badge. Lesson recorded in `CLAUDE.md`: the
+    capping function must be written once in `core/` and called by
+    **every** agent that creates findings, never duplicated or forgotten
+    agent by agent.
+11. **Excessive weight and build time** caused by
+    `sentence-transformers`/`torch` in `requirements.txt`, used only for
+    ChromaDB semantic-memory embeddings. Never removed in v1 (identified,
+    not fixed for lack of time). Planned fix for v2: embeddings via the
+    `/api/embeddings` endpoint of a lightweight model already running in
+    the Ollama container, which removes `torch` entirely from the Python
+    dependencies.
+12. **A vulnerable target initially bundled in `docker-compose.yml`** (a
+    DVWA service). Removed on explicit request: the application container
+    must only ever contain the framework, never a target, since the target
+    is always external and supplied by the user.
+
+## 5. Baseline results (real runs, v1)
+
+- Baseline run: 35 minutes, 6 findings (5 MEDIUM, 1 LOW), overall MEDIUM
+  badge.
+- Two repeated runs against the same target (33m50s and 50m11s): the
+  deterministic core was strictly identical (same confirmed findings, same
+  MEDIUM badge, same consolidated 401/403 finding across 22 paths), only
+  the speculative layer (number of leads proposed by the LLM, duration)
+  varied. This is proof of the deterministic core's reproducibility, not
+  of generality.
+- Observed time breakdown: about 5% for the security tools, about 95% for
+  local model inference. This is the exact problem the v2 model change
+  aims to reduce.
+
+## 6. First real v2 deployment (Parrot OS, 8 GB of RAM, 2026-09-18)
+
+Unlike section 4 (v1 incidents), this section documents the reconstructed
+v2's first real `docker compose up --build`, against a DVWA target. Two
+findings worth keeping in mind to avoid rediscovering them in a future
+session.
+
+1. **Incorrect `gobuster` release asset naming.** The Dockerfile assumed,
+   by analogy with `ffuf`, that `gobuster`'s GitHub assets followed the
+   `gobuster_Linux_amd64.tar.gz` scheme. The build failed with a 404:
+   `gobuster` actually names its assets `gobuster_Linux_x86_64.tar.gz` (and
+   `gobuster_Linux_arm64.tar.gz`), with a capital "L" and `x86_64` rather
+   than `amd64` — a scheme different from `ffuf`'s
+   (`ffuf_<version>_linux_amd64.tar.gz`), even though both had been written
+   by analogy with each other with no individual verification. Fixed after
+   direct verification via
+   `gh api repos/OJ/gobuster/releases/tags/<version>`. Lesson: verify each
+   tool's actual naming individually via the GitHub API before writing it
+   into the Dockerfile, never assume a tool follows the same scheme as
+   another one in the same Dockerfile.
+2. **The RAM budget, not just the disk budget, is a real constraint.**
+   `qwen3.5:9b` (6.6 GB on disk, confirmed) used up nearly all the RAM
+   available on an 8 GB machine: Ollama's logs reported
+   `total="7.4 GiB" available="7.0 GiB"` in CPU mode, leaving little
+   headroom for the rest of the stack (the `framework` container, ChromaDB,
+   nmap/gobuster/nikto/sqlmap tool processes, plus the OS and Docker
+   themselves). CLAUDE.md, section 8, had so far only budgeted disk space
+   (target 8-10 GB) — a number under that ceiling doesn't guarantee the
+   default model fits comfortably in RAM. Fix: `qwen3.5:4b` (3.4 GB on
+   disk, confirmed via `ollama.com/library`) recommended and documented
+   (CLAUDE.md, section 3) for any machine with ~8 GB of total RAM; it
+   already beats `qwen3:8b` on the tool-calling benchmark cited in section
+   3, for less than half its estimated RAM. No code change needed, only
+   `OLLAMA_MODEL_MAIN` changes.
+3. **A false CRITICAL confirmed against the framework's own target,
+   combining a poorly chosen target and a parsing bug.** A mission targeted
+   the host machine's LAN IP (suggested to reach DVWA published on that
+   same machine); `nmap` found port 8000 open there — the framework's own
+   port, not DVWA on 8080, which was never reached. `exploit_agent` then
+   tested `http://<host>:8000/?id=1` (its own root route) with `sqlmap`,
+   which reported a negative result ("parameter 'id' is NOT injectable").
+   `tools/sqlmap_tool.py`'s parsing nonetheless classified this result as
+   "vulnerable" because of a buggy check:
+   `"parameter" in stdout and "injectable" in stdout`, true for both a
+   positive and a negative message. Result: a fully fabricated CRITICAL
+   "SQL injection confirmed" finding, propagated up to the overall risk
+   badge. Fixed: a single unambiguous positive signal (`"is vulnerable"`
+   checked line by line, never a combination of independent keywords over
+   the whole output). See CLAUDE.md, section 2, for the generalized rule.
+
+## 7. Comparison with a v1 snapshot and adoptions (2026-09-18)
+
+The user provided a snapshot of their old v1 project
+(`reference/v1-legacy-project/`, not versioned, outside this repo) for
+comparison. This isn't the "final corrected" v1 described in section 4 —
+its own `docs/CHANGELOG-CORRECTIONS.md` lists partial fixes, and several
+incidents documented in section 4 are still present as-is in this snapshot
+(`nmap_tool.py` without `-Pn`, unconditional `sudo`, `cap_severity` still
+missing from 3 out of 5 agents). To be treated as a source of ideas, not as
+a reference to copy as-is. Six elements were kept and ported into this
+repo:
+
+- **Capping transparency note** (`core/state.py::Finding.__post_init__`):
+  when `cap_severity` actually reduces a severity, a visible note is now
+  added to the finding's description instead of a silent cap.
+- **Context shared between phases** (`MissionState.scratch`): `enum_agent`
+  publishes the accessible URLs it discovered, `exploit_agent` consumes
+  them directly instead of blindly re-scanning `tool_results`.
+- **Streaming updates** (`core/orchestrator.py::run_mission`): switch from
+  `graph.ainvoke` to `graph.astream(..., stream_mode="values")` with an
+  `on_progress` callback, so the dashboard receives an update after each
+  phase rather than only once at the end.
+- **DNS enumeration during reconnaissance** (`agents/recon_agent.py`):
+  `dnspython` was already a declared dependency (CLAUDE.md section 8) but
+  never used; added a reverse DNS lookup (PTR) on an IP, or A/MX/NS on a
+  hostname, always as a `Lead`, never a `Finding`. A pitfall hit
+  immediately while testing this: `dns.resolver.Resolver().resolve()` is
+  synchronous/blocking; a first direct call from the agent's coroutine
+  froze the entire asyncio loop (so the API and dashboard, not just the
+  mission) until the DNS timeout expired. Fixed with `asyncio.to_thread`.
+  See CLAUDE.md, section 2.
+- **Mission cancellation** (`api/routes/missions.py`): switch from
+  `BackgroundTasks` to `asyncio.create_task` with a `_running_tasks`
+  registry, added `POST /{id}/abort` and `DELETE /{id}` (409 if still
+  running). This is directly the gap felt during this session: without a
+  handle on the task, the only way to stop a running mission was to kill
+  the whole container. Nuance tested under real conditions: cancellation is
+  only honored at the next truly asynchronous `await` point, not
+  instantly — a blocking call already in progress (e.g. `dns.resolver`
+  inside an `asyncio.to_thread`) continues until its own timeout before
+  the cancellation is delivered to the coroutine. `tools/base.py::_run`
+  now catches `CancelledError` to explicitly kill the running external
+  subprocess (nmap, gobuster, ...) rather than leave it orphaned; this is
+  the most frequent path during a real mission and it reacts promptly.
+- **Optional perimeter guardrail**
+  (`core/state.py::is_target_in_allowed_ranges`, `ALLOWED_TARGET_RANGES`):
+  disabled by default (the MVP must work against any external target, so
+  no implicit restriction to private ranges), can be enabled to lock one's
+  own missions to a known lab.
+
+Dropped from this v1 with no replacement: `evasion_level` (out of MVP
+scope, see `PROJECT.md`) and speculative config (`hydra_path`,
+`masscan_path`, etc., with no corresponding tool).
+
+LLM-driven phase routing had initially been dropped without being offered
+as a choice to the user — corrected after they pointed out that dynamic
+adaptation to findings was part of the original goal. Adopted in a form
+cheaper than v1's: instead of a dedicated LLM call before every transition
+(the most likely explanation behind the "~95% of time on inference" from
+section 5), each agent (recon/enum/exploit) simply adds a
+`next_phase_suggestion` field to the JSON of its already-existing
+end-of-phase summary - no extra inference call. `core/orchestrator.py::_route`
+reads `MissionState.last_decision` (a schema field never used until now) in
+priority over the default linear order, but `enforce_progression` remains
+the sole final judge, exactly as before. A suggestion can skip an
+intermediate phase (e.g. recon → exploit directly); if nothing routes
+around it afterward, the safety net comes back to it on its own as soon as
+that phase becomes "the first uncompleted one" - explicitly tested
+(`tests/test_orchestrator.py`).
+
+The dashboard was then entirely rebuilt (`templates/dashboard.html`) with
+v1's dark "command center" aesthetic (Orbitron/Share Tech Mono fonts,
+three-column layout, per-phase progress track, per-severity stat cards,
+findings/leads/attack-chain/info tabs, live activity feed) without
+touching the orchestrator, the agents, or the deterministic core — the only
+backend change is additive (`_mission_summary` returns extra keys:
+`attack_chain`, `operator`, richer findings/leads/target detail), so no
+existing test could break. Deliberate simplifications compared to v1: no
+`evasion_level` slider (no corresponding field, out of MVP scope), a single
+mission-creation form instead of v1's duplicate quick-form + modal, and a
+client-side synthesized activity feed by comparing successive API
+responses rather than v1's granular WebSocket event types (separate
+finding/step/log).
+
+## 8. Unreachable DVWA target: loopback-only port binding (2026-09-18)
+
+A mission targeting the host machine's LAN IP only found the framework's
+own port (8000), never DVWA on 8080, even though DVWA was indeed running in
+a container on the same machine. Cause: DVWA's compose file (supplied by
+the user, outside this repo) published the port with
+`"127.0.0.1:8080:80"`. This prefix restricts publishing to the **host
+machine's** loopback interface; traffic coming from another container (the
+`framework`) and arriving on the host's real LAN IP is never forwarded to a
+socket bound only to `127.0.0.1`. This isn't a framework bug — `nmap`
+correctly sees this port as closed from that vantage point, which is the
+truth for that specific network path. Two possible fixes were communicated
+to the user without imposing one: remove the `127.0.0.1:` prefix (simple,
+but exposes DVWA to the whole LAN) or connect the `framework` container to
+DVWA's Docker network and target it by service name (keeps DVWA
+loopback-only, needs no port in the target field since `recon_agent`'s full
+scan finds the real internal port). Kept for memory: when setting up a
+containerized test target, always check the published port's interface
+binding, not just that it's published.
+
+## 9. Comparison with a v0 snapshot and adoptions (2026-09-18)
+
+`reference/v0-legacy-project/` (not versioned, outside this repo) is a
+snapshot even earlier than v1 — before Docker was even introduced. Larger
+than v1 (~8000 lines) and accompanied by 21 pairs of real reports
+(html+pdf), a sample far richer than v1's two PDFs. Four elements kept,
+none overlapping with what had already been adopted from v1:
+
+- **Findings/leads deduplication**
+  (`core/state.py::MissionState.add_finding`/`add_lead`): a normalized key
+  (title, affected component, severity) for findings, (title, source) for
+  leads. The same tool can re-report the same thing twice in a mission;
+  neither v1 nor this repo protected against that before this — v0's own
+  test suite (`TestFindingDeduplication`, `TestDedupTrailingSlash`) shows
+  they actually ran into it in practice.
+- **Robust JSON extraction** (`agents/base_agent.py::_extract_json`):
+  markdown fences stripped, `json.loads(..., strict=False)` (tolerates
+  literal control characters, a frequent failure cause on a small model),
+  brace-counting isolation if stray text follows the JSON, trailing-comma
+  cleanup as a last resort. Replaces a simple regex + a single `json.loads`
+  attempt. Directly strengthens the reliability of the leads, summaries,
+  and `next_phase_suggestion` already built this session, which used to
+  silently degrade to `{}` on a parsing failure.
+- **Explicit `recursion_limit`** passed to `graph.astream()`
+  (`core/orchestrator.py::run_mission`), on top of the already-existing
+  `orchestration_cycles` counter — avoids implicitly relying on
+  LangGraph's undocumented default limit.
+- **`GET /health`** (`main.py`): checks Ollama connectivity and exposes it
+  to the dashboard, whose status light until then only reflected the
+  WebSocket connection — no visible signal existed when Ollama is
+  unreachable, even though every `ask_llm` silently degrades to `{}` in
+  that case.
+
+Two findings noted but not ported: v0 lets the LLM draft the findings'
+content directly (title, description, severity), which forced it to build
+an elaborate "ground truth" cross-checking machinery in `enum_agent` to
+catch cases where the LLM's text didn't match the tools' actual status
+codes — v2 avoids this entire class of bug by construction, since no agent
+ever lets the LLM write a finding's content. And a sampled real report
+shows an LLM-drafted executive summary announcing "three critical
+vulnerabilities" while the structured data contained no CRITICAL at all —
+the deterministic badge and table were correct, only the free text
+exaggerated; no simple structural fix exists for this specific point, kept
+in mind as a known blind spot.
+
+## 10. Real-deployment LLM routing regression, and report enrichment (2026-09-18)
+
+**Phase order broken by a skip suggestion.** A real mission executed
+phases in the order recon, exploit, enum, postexploit, report instead of
+the expected linear order. Confirmed cause: recon's `next_phase_suggestion`
+(section 7 above) proposed "exploit", a skip honored by
+`enforce_progression` since only the "already completed" case was blocked,
+not a forward skip to a phase never yet run. The safety net did catch
+"enum" later (documented and tested behavior at the time), but the damage
+was done: `exploit_agent` runs relying on
+`state.scratch["enum"]["candidate_urls"]`, absent since enum hadn't run
+yet — the agent fell back to its generic fallback (`/?id=1` per HTTP port)
+instead of testing the real parameterized paths enumeration would have
+discovered, genuinely reducing the number of vectors tested. Fixed:
+`enforce_progression` (`core/state.py`) now only honors a direct skip to
+"report" (early completion, never problematic since nothing downstream
+depends on it); any other skip suggestion is redirected to the real next
+phase. The recon/enum/exploit prompts were reworded to stop inviting a
+suggestion that would be rejected anyway. Tests updated accordingly
+(`test_enforce_progression_rejects_a_forward_skip_suggestion`,
+`test_run_mission_rejects_a_forward_skip_suggestion`, plus a dedicated test
+confirming that the one remaining allowed skip - to "report" - still
+works).
+
+**Report enriched based on v1's style.** The user found the v2 report
+(from the first minimal template, section 10 of `CLAUDE.md`) less complete
+and less presentable than v1's. A direct read of
+`reference/v1-legacy-project/redteam-framework/templates/report.html` and
+`report_agent.py` (never done in detail during previous comparisons, which
+had only skimmed this file): cover page, executive summary + "key risks",
+per-severity stat grid, findings grouped by severity with CVE/tags/
+remediation, an enriched leads section, an attack-chain table, a
+recommendations section (immediate actions + per-finding recommendation), a
+technical metadata table. Ported into `templates/report.html` and
+`agents/report_agent.py` while fully preserving the deterministic
+architecture: `overall_risk` and the per-severity grouping remain computed
+in code, never asked of the LLM; only `executive_summary`, `key_risks` and
+`immediate_actions` come from a single LLM call (same guarantees as the
+previous report), with a deterministic fallback if the LLM replies with
+nothing usable (`ReportAgent._fallback_executive_summary`/
+`_fallback_immediate_actions`, the latter derived directly from
+`Finding.remediation` ordered by severity). A gap discovered along the way:
+no agent had ever populated `Finding.remediation` before this, the field
+existed but always stayed empty — a "recommendations per finding" section
+would therefore have been empty no matter how rich the template. Fixed by
+adding a generic, deterministic remediation text (never drafted by the
+LLM) at every finding-creation site: nmap-vuln script, consolidated denied
+paths, accessible paths, Nikto findings, confirmed SQL injection.
+
+## 11. Blind exploit against an authenticated target (DVWA), and adding a session cookie (2026-09-18)
+
+Even after the two previous fixes, a real report against DVWA
+(192.168.1.33:8000 and :8080) produced no exploitation finding at all
+despite 2 sqlmap runs (one per HTTP port). Diagnosed from the number of
+tools executed (11 = 3 nmap + 3x2 enum + 2 sqlmap, consistent with a
+generic per-port fallback rather than a truly discovered URL):
+`exploit_agent._candidate_urls()` only keeps `enum` paths containing a `?`
+(query parameter), but `gobuster`/`ffuf` with a standard wordlist
+(`common.txt`) never produce parameterized paths - only path segments
+(`/login.php`, `/admin`). The filter is therefore systematically empty in
+practice, and exploit always falls back to its generic `/?id=1` guess on
+the root. Even when finding a real page, DVWA requires form-based
+authentication plus a `security=low` cookie before its vulnerable pages
+(`/vulnerabilities/sqli/?id=...`) respond - no generic wordlist will
+discover them, and the framework so far had no way to authenticate.
+
+Fixed by adding an optional `session_cookie` (`Target.session_cookie`,
+`MissionCreateRequest.session_cookie`): the operator logs in once via a
+browser (and sets DVWA's security level to "low"), pastes the obtained
+cookie into the mission form, and that cookie is passed as-is to
+`gobuster -c`, `ffuf -b`, `nikto -Header "Cookie: ..."` and
+`sqlmap --cookie` - each tool's native flag, with no login automation or
+CSRF token extraction on the framework's side. Deliberately simpler choice
+than generically automating the login form: every application handles its
+login flow differently (CSRF tokens, multi-step, MFA), whereas a session
+cookie is the standard way a pentester already runs an authenticated scan
+manually. The cookie is never exposed in the clear in an API response or a
+report - only a boolean `authenticated`/"Session authenticated" indicator
+is shown. This only solves part of the problem: see the discussion on
+additional tools/vectors to consider (HTML crawler, `nuclei`, XSS/RCE/
+upload vectors) for full DVWA coverage.
+
+## 12. PDF generation failure: WeasyPrint/pydyf incompatibility (2026-09-18)
+
+A real report failed to generate its PDF (HTML fallback) with `'super'
+object has no attribute 'transform'`. Confirmed by research: a known
+incident ([Kozea/WeasyPrint#2620](https://github.com/Kozea/WeasyPrint/issues/2620))
+- `weasyprint==62.3` (initially pinned) sets no upper bound on its `pydyf`
+dependency, so `pip install` picks up a recent `pydyf` version (>= 0.11.0)
+whose API changed (`Stream.transform` renamed/removed), incompatible with
+WeasyPrint 62.x's code which still calls it via
+`super().transform(...)`. Fixed the right way (fix forward, don't pin an
+old dependency indefinitely): `requirements.txt` moves to
+`weasyprint==70.0`, a version where the bug is resolved on WeasyPrint's own
+side, on top of including a recent security fix (CVE-2026-55073). Not fully
+verifiable on the Windows development machine used for this session: it
+never had the native Pango/GObject libraries installed at all (a different
+failure, already documented elsewhere), so only a clean install of
+`weasyprint==70.0` + `pydyf==0.12.1` with no dependency conflict could be
+confirmed here - real PDF generation needs to be revalidated inside the
+container (which does have the native libraries via the Dockerfile).
+
+## 13. HTML crawler: finding real pages with parameters (2026-09-18)
+
+Following the addition of the session cookie (section 11), the remaining
+blocker to reaching DVWA's vulnerable pages: `gobuster`/`ffuf` with a
+standard wordlist only guess path segments (`/login.php`, `/admin`), never
+the parameters a page actually expects (`/vulnerabilities/sqli/?id=1`).
+Added `tools/crawler_tool.py`: an async HTTP client (httpx, already a
+dependency) that follows same-host `<a href>` links and synthesizes a
+testable URL from the fields of every `<form>` encountered - a GET form
+becomes a URL with parameters (reuses the existing `candidate_urls`
+pipeline), a POST form is kept separately
+(`state.scratch["enum"]["post_forms"]`) since `sqlmap` tests it via
+`--data`, never via a plain URL. Doesn't inherit from `BaseTool`: it isn't
+an external subprocess, the `build_command`/`_run` machinery around a CLI
+binary doesn't apply. `agents/exploit_agent.py` was factored
+(`_test_sqlmap`) to test both candidate types (URLs and POST forms) without
+duplicating the finding-creation logic. New dependency: `beautifulsoup4`
+(pure `html.parser` backend, no `lxml`/C extension, consistent with the
+project's avoidance of heavy dependencies).
+
+## 14. `nuclei`, and a bug discovered in the capping transparency note (2026-09-18)
+
+Added `tools/nuclei_tool.py`: broad coverage of known patterns (default
+credentials, exposed panels, security headers, common CVEs) via community
+templates, each match carrying its own evidence (a reproduction curl
+command). Release asset naming verified via the GitHub API before writing
+(`nuclei_<version>_linux_<arch>.zip` - a `.zip`, unlike gobuster/ffuf's
+`.tar.gz`, hence adding `unzip` to the Dockerfile) and CLI flags confirmed
+via the official documentation (`-jsonl` for output, `-H` for a custom
+header - nuclei has no dedicated cookie flag, unlike gobuster/ffuf/sqlmap).
+Wired into `enum_agent.py`, one `Finding` per match (no
+`consolidate_denied_paths`-style consolidation: different templates are
+distinct issues, not repeated noise).
+
+**A real bug discovered while testing the integration.** A nuclei
+"critical" match was correctly capped to MEDIUM (`cap_severity` worked),
+but the transparency note added in section 7 (v1) never showed up. Cause:
+each agent called `cap_severity(...)` itself *before* constructing the
+`Finding`, so `Finding.__post_init__` already received a pre-capped
+severity - `requested_severity == self.severity` internally, so nothing to
+report, even when a real cap had indeed just happened one step earlier. The
+note could therefore never trigger under normal operation, only in the
+defense-in-depth case where an agent would forget the explicit call
+(exactly incident #10 - the case we hope never happens). Fixed by removing
+the explicit `cap_severity(...)` call from every `Finding`-construction
+site (`recon_agent.py`, `enum_agent.py`, `exploit_agent.py`): agents now
+pass the "intended" severity as-is, and `Finding.__post_init__` remains the
+sole enforcement point, structurally impossible to bypass. CLAUDE.md,
+sections 2 and 10, updated to reflect that capping is no longer a
+discipline expected of each agent but a single structural guarantee - a
+strengthening, not a loosening.
+
+## 15. `dalfox` (XSS) and `commix` (command injection) (2026-09-18)
+
+Last piece of the plan to expand exploitation vectors beyond SQL injection
+alone. Both tools' naming/CLI flags were verified before writing, not
+assumed:
+
+- **`dalfox`**: `scan` subcommand, `-f jsonl` for JSON Lines output,
+  `--headers "Cookie: ..."` (no dedicated cookie flag, like nuclei). dalfox
+  only prints a JSON entry for an actually confirmed vulnerability (unlike
+  sqlmap/commix, which print a diagnostic regardless of the result): "at
+  least one entry parsed" is therefore a reliable positive signal here,
+  with no need for an explicit positive keyword. Release asset naming
+  verified via the GitHub API: `dalfox-vX.Y.Z-linux-x86_64.tar.gz` (the
+  tag's "v" is kept in the filename, unlike `ffuf`) and `aarch64` rather
+  than `arm64` for the ARM variant - a fourth naming scheme, different from
+  the other three Go-binary-based tools in this Dockerfile.
+- **`commix`**: architecture and CLI conventions directly inspired by
+  sqlmap (same convention authors), confirmed by reading the source code
+  (`src/core/parse/cmdline.py` for the `-u`/`--url`, `--batch`, `--cookie`,
+  `--data` flags; `src/core/controller/checks.py` for the exact positive
+  signal) rather than assumed by analogy. Positive signal: the exact
+  phrase `"is vulnerable"` (like sqlmap); the negative case explicitly
+  uses `"false positive"`/`"unexploitable"`, never that phrase - the same
+  pitfall fixed on sqlmap (section 6) avoided here from the start.
+
+Both are tested in `exploit_agent.py` alongside sqlmap, on the same
+candidates (`candidate_urls` and `post_forms` discovered by enum/crawler),
+under the same rule with no exception: `exploited=True` only on tool
+confirmation, never on the LLM's opinion. `dalfox` isn't applied to POST
+forms (no confirmed raw-POST-payload flag for this use case - left out of
+scope rather than guessing an unverified flag).
+
+**A real build failure: dalfox's internal archive structure not
+verified.** The asset name and per-architecture naming had been confirmed
+via the GitHub API, but not the archive's internal structure -
+`tar -xzf ... dalfox` failed with `tar: dalfox: Not found in archive`.
+Cause: unlike gobuster/ffuf/nuclei, which place their binary at the
+archive's root, dalfox nests it in a versioned subfolder
+(`dalfox-v3.2.3-linux-x86_64/dalfox`). Fixed with
+`tar --strip-components=1` into a dedicated extraction folder rather than a
+fixed filename - robust regardless of the exact subfolder name, and
+manually verified before shipping the fix (real extraction tested, binary
+confirmed as valid ELF x86-64). Lesson generalized in CLAUDE.md, section 2:
+verify both the asset name AND the archive's internal structure, not just
+one of the two.
+
+Deliberately left out of scope for this round (decision made with the
+user): file upload and file inclusion vulnerabilities have no dedicated
+tool equivalent to sqlmap/dalfox/commix; file inclusion (LFI/RFI) is
+already partially covered by the existing `nuclei` templates, and file
+upload requires application-specific logic that doesn't generalize
+cleanly.
+
+## 16. False CRITICAL confirmed on dalfox: outdated generic documentation (2026-09-18)
+
+A real mission against DVWA (authenticated via a session cookie, crawler
+and nuclei working) produced two fabricated `CRITICAL "XSS confirmed"`
+findings, with empty `EVIDENCE` fields (`param= payload=`) - an immediate
+sign something was wrong in the parsing, not in dalfox itself.
+
+**Root cause.** The documentation consulted before writing
+`tools/dalfox_tool.py` (general web search, not the source code) described
+dalfox's old Go CLI. The `hahwul/dalfox` repo has since been fully rewritten
+in Rust (confirmed via `gh api repos/hahwul/dalfox --jq .language`): the
+JSON `"type"` field there is a four-value enum
+(`src/scanning/result/mod.rs`, read directly) - `"V"` (Verified, the only
+real exploitable confirmation), `"R"` (Reflected, "not a vulnerability
+assertion" per the project's own documentation), `"A"` (DOM XSS detection
+via static analysis, a method label) and `"I"` (Informational, e.g. an
+outdated library). The initial code treated "any parsed JSON line" as a
+confirmation (`vulnerable = bool(findings)`), never checking this field -
+exactly the same bug class as the sqlmap false positive (section 6), but
+this time caused by outdated external documentation rather than a logic
+shortcut.
+
+**Fixed** by strictly filtering on `type == "V"` for a confirmed `Finding`
+(`exploited=True`), and promoting `type == "R"` (reflected, unconfirmed) to
+a `Lead` - a lead to verify manually, never a scored finding, on the same
+model as the low-confidence OS guess in `recon_agent.py`. `"A"` and `"I"`
+are ignored (neither proof nor an actionable lead for this project). The
+cookie flag was also fixed along the way: `--cookies` (documented in the
+repo's current CLI reference), not `--headers "Cookie: ..."` which
+belonged to the old CLI.
+
+**Lesson generalized.** External documentation (web, README, generic help)
+can describe an outdated version of a tool that has since changed
+implementation language - always check
+`gh api repos/<owner>/<repo> --jq '.language'` and read the real source
+code of the field that determines a positive/negative signal before
+writing a parser, not just its CLI flags. See CLAUDE.md, section 2.
+
+## 17. Three anomalies from the same authenticated mission: incomplete feed, empty attack chain, false nikto finding (2026-09-18)
+
+A subsequent mission against the same target (DVWA, session cookie)
+surfaced three distinct symptoms in a single iteration.
+
+**1. Missing `[EXPLOIT] Phase terminee` line in the live feed.**
+`templates/dashboard.html::_diffAndLog` only logged the LAST newly
+completed phase on every poll
+(`(data.completed_phases||[])[cur.completed_phases - 1]`), unlike the
+`findings`/`errors` branches in the same code which already looped over
+`.slice(prev).forEach(...)`. When `exploit` (nothing to report, so fast)
+and `postexploit` completed within the same polling window, only
+`postexploit`'s line survived. Fixed by looping over every newly completed
+phase, like the other branches.
+
+**2. Empty "exploit" cell in the attack-chain table.** `recon_agent.py`,
+`enum_agent.py` and `exploit_agent.py` wrote
+`llm_summary.get("summary", "")` with no fallback: when the end-of-phase
+LLM summary call returned nothing usable, the cell rendered empty.
+`postexploit_agent.py` already had a deterministic fallback for its
+"nothing exploited" case; the same principle was applied to the other
+three agents (e.g. exploit: "No vulnerability confirmed by tool proof on
+the vectors tested (sqlmap, dalfox, commix)." when neither the LLM nor a
+real exploit produced text). The symptom already existed in section 16's
+report (row 5 "exploit" empty), simply masked by the two fabricated dalfox
+findings next to it.
+
+**3. False MEDIUM finding "Nikto Findings" with `requires a value`
+evidence.** The most serious root cause of the three: `tools/nikto_tool.py`
+passed `-Header "Cookie: ..."` for authentication, but nikto 2.5.0 **has no
+`-Header` option** (verified in the real `GetOptions` of
+`program/plugins/nikto_core.plugin` in the `sullo/nikto` repo, tag
+`2.5.0` - absent from the full list). An invalid CLI option makes
+`GetOptions` fail and calls `usage()`, which prints the full help screen
+then `exit $is_failure` with `$is_failure` undefined (`shift` on an empty
+list) - numified to `0` in Perl, so perceived as a **success** on the
+`is_success()` side. The last line of that help screen (`+ requires a
+value`, a legend explaining the `+` suffix used throughout the option
+list) starts with `"+ "` and therefore passed `parse_output`'s filter,
+becoming a fabricated generic nikto "finding" - on every authenticated
+mission, on every HTTP port, with no error ever logged anywhere (exit code
+0). No real nikto scan had ever taken place against an authenticated
+target until this fix.
+Fixed by using the actually documented mechanism (`nikto.conf.default`,
+the `STATIC-COOKIE` key) via `-Option "STATIC-COOKIE=..."` (the only flag
+that lets you override a config key on the command line, splitting only on
+the first `=`), with each `name=value` pair quoted and semicolon-separated
+for a multi-value cookie. `parse_output` now explicitly filters out
+`"+ requires a value"` as a safety net in case a future invalid option
+makes nikto fall into `usage()` again.
+
+**Lesson generalized.** A tool that silently fails at its own
+argument-parsing level (exit code 0 despite an invalid CLI) is a more
+dangerous trap than an outright crash: nothing signals it anywhere in the
+mission state. The same verification discipline as for dalfox (section 16)
+applies to CLI flags, not just output format: read the tool's real
+`GetOptions`/argument parser before assembling a command, never guess a
+flag name by analogy with another tool (`-Header` exists in other
+scanners, not in nikto).
+
+## 18. Reducing mission time: intra-phase concurrency and performance bounds (2026-09-18)
+
+Real missions against DVWA (nikto now working, section 17) took 71 to 87
+minutes each - too long to iterate on. None of these changes alter what a
+tool finds, only how long a mission takes to find it.
+
+**Main structural cause: everything ran sequentially even though most
+steps are independent.** `enum_agent.py` awaited gobuster, then ffuf, then
+nikto, then the crawler, then nuclei, one after another, twice (once per
+HTTP port) - 10 chained external subprocesses even though none of the 5
+tools on a given port reads another's output. Same finding in
+`exploit_agent.py`: sqlmap, dalfox and commix ran sequentially for every
+candidate URL, and an authenticated mission with a rich crawl can produce
+dozens of candidate URLs. Fixed with `asyncio.gather()`: the 5 tools on a
+port now run concurrently in `enum_agent.py`, and the 3 vectors for a URL
+concurrently in `exploit_agent.py`, with an `asyncio.Semaphore`
+(`EXPLOIT_MAX_CONCURRENT_URLS`, default 5) to never launch an unbounded
+burst of subprocesses if `candidate_urls` is long. `asyncio.gather()`
+returns its results in the order of the tasks passed, not completion
+order - so result processing stays deterministic and the existing tests
+didn't need rewriting, only completing (`agent._settings` didn't exist on
+agents built via `__new__()` in the tests, needed since `exploit_agent.py`
+now reads `self._settings.exploit_max_concurrent_urls`).
+
+**nmap `-p-` stays complete, but faster.** The port scan (`-p- -sV`) is the
+only one that sweeps all 65535 ports - necessary for the MVP validation
+criterion on a non-standard port (CLAUDE.md, section 11) - and must
+therefore never lose scope to save time. `-T4 --min-rate 1000` speed up
+that same full scan without reducing its coverage (`docker-compose`/the
+real network environment will determine whether this aggressiveness is
+appropriate; revisit if a target's IDS/IPS starts dropping packets at this
+rate).
+
+**nikto with no worst-case bound.** Nikto never has a default time limit
+and can legitimately take several minutes on a verbose site. Its own
+`-maxtime` flag (already spotted while reading its `usage()`, section 17)
+is now systematically passed (`NIKTO_MAX_TIME`, default `180s`): bounds
+the worst case, changes nothing on a normal target that finishes before
+that.
+
+**gobuster/ffuf with low internal parallelism.** Both ran with their
+conservative defaults (10 and 40 threads) outside any shared-load context.
+Bumped to 50/80 threads each, a reasonable choice now that they run
+concurrently with each other (and with nikto/crawler/nuclei) rather than
+alone.
+
+**LLM call with no generation cap or safety timeout.** Every prompt in
+this project explicitly asks for short JSON (a few sentences, a few short
+lists), but `ChatOllama` had neither `num_predict` nor a timeout: a
+CPU-only local model that rambles past what's needed had no bound, and a
+stuck call could have frozen a phase indefinitely. Added `num_predict`
+(`LLM_NUM_PREDICT`, default 512) and `client_kwargs={"timeout": ...}`
+(`LLM_TIMEOUT_SECONDS`, default 180s, passed to the underlying `ollama`
+client, itself based on httpx) in `agents/base_agent.py`.
+
+**Lesson generalized.** Immediate sequentiality ("I write `await` at every
+step") is often a default choice, not a necessity: check which steps
+actually depend on another's result before chaining them. Here, none did
+within a phase - only the order BETWEEN phases (recon before enum before
+exploit) is a real dependency, already protected by `enforce_progression`.
+
+## 19. Real mission after the concurrency work: first real confirmed exploits, and one candidate URL tested twice (2026-09-18/19)
+
+First complete mission after section 18: 25m14s (down from 71-87 minutes
+before), and above all the first real exploits confirmed by tool proof on
+DVWA (3 SQL injections via sqlmap, 2 XSS via dalfox type `V`, five correct
+CRITICALs, all correctly deduplicated in the findings). The session
+cookie/authenticated crawl finally work together as intended (section 17's
+hypothesis confirmed).
+
+**But the attack chain showed two identical dalfox entries** for the same
+two exploited XSS URLs (`fi/?page=file3.php` and `xss_r/?name=1`), while
+the findings themselves stayed correct (a single CRITICAL each, thanks to
+`add_finding`'s deduplication). Cause: `exploit_agent.py::run()` called
+`self._candidate_urls(state)` on every iteration of its loop over the
+target's HTTP ports, while this method already returns the COMPLETE list
+of candidate URLs aggregated by `enum_agent.py` across ALL HTTP ports at
+once (each URL already carries its own scheme/host/port). With 2 matching
+HTTP ports (8000 and 8080), the entire candidate list was therefore
+retested twice - once per port - a bug that predates section 18 (present
+in the original sequential code too), simply invisible before because no
+real vulnerability had yet been confirmed to make it visible in the attack
+chain (which is never deduplicated, unlike findings/leads).
+
+**Fixed** by separating already-absolute candidates (the normal case,
+tested exactly once regardless of the number of HTTP ports) from relative
+paths coming from the legacy `tool_results` fallback (tested per port for
+lack of knowing their origin port, historical behavior unchanged). The gain
+isn't just cosmetic: every duplicate was a real extra request sent to the
+target, not just an extra report line.
+
+**Lesson generalized.** A function that already aggregates over the entire
+relevant scope (here: all HTTP ports) must never be called again from
+inside a loop that iterates over that same scope - the sign that a
+duplicate exists can stay invisible as long as no downstream
+deduplication path (here, `add_finding`) silently neutralizes it; always
+check the non-deduplicated log (`attack_chain`) rather than relying only on
+lists that already filter duplicates out.
+
+## 20. Security audit of the framework itself (2026-09-19)
+
+Once the offensive cycle was proven correct over several real missions
+(sections 17 to 19), an audit explicitly deferred since the start of this
+reconstruction (see session memory): does the framework expose anything it
+shouldn't, is it vulnerable itself?
+
+**The most consequential: no authentication on the API/dashboard, exposed
+on every network interface.** `docker-compose.yml` publishes
+`"8000:8000"`, which binds to `0.0.0.0` on the host side by default -
+reachable from any device on the same network as the operator's machine,
+not just `localhost`. No FastAPI route required anything before this fix.
+`REQUIRE_AUTHORIZATION` only checks for the presence of a non-empty string
+in `authorization_ref` - a note for traceability, never a technical
+control. Combined, this meant that anyone reaching port 8000 could launch
+a real mission (scan + exploitation) against any target of their choosing,
+bounded only by `ALLOWED_TARGET_RANGES` (empty by default = no
+restriction). Fixed with an optional shared key (`API_KEY`, empty by
+default so it doesn't break an existing deployment on the first pull)
+checked by a FastAPI dependency applied to every `/api/*` router
+(`api/dependencies.py::require_api_key`), accepted via the `X-API-Key`
+header (the dashboard's fetch calls) or the `?api_key=` parameter (a
+fallback for the report's direct `<a href>` download link, which can't set
+a custom header). `/health` and the dashboard HTML itself stay open (no
+sensitive data). A warning is logged at startup if `API_KEY` stays empty.
+
+**Session cookie: no confirmed leak, but no structural guarantee either.**
+The API (`_mission_summary()`) and the report already only ever exposed
+`authenticated: bool(...)`, never the raw cookie - correct from the
+design stage. The `Cookie: ***` visible in the PDF's nuclei evidence
+actually comes from nuclei's own built-in redaction (verified in its
+source code, `pkg/output/output.go`), not a mechanism of this project.
+`sqlmap`/`dalfox`/`commix`/`nikto` have no equivalent guarantee on their
+raw output: nothing structurally prevented a verbose mode or an error
+message from one of these tools from echoing the sent cookie into text
+that ends up in `Finding.evidence`/`description` or `Lead.rationale`.
+Fixed in defense in depth: `MissionState.add_finding`/`add_lead` now strip
+any literal occurrence of the session cookie from those fields before
+storage, at the same single structural point as deduplication (same
+pattern as `cap_severity`/`Finding.__post_init__`, section 2).
+
+**Deliberately deferred, to document in the README for a later pickup
+rather than handled here:**
+- The container runs as root (no `USER` directive in the Dockerfile) -
+  partially justified (SYN scanning requires raw sockets), but
+  `NMAP_SCAN_MODE=connect` already exists for operating without elevated
+  privileges if switching to a non-root user is desired.
+- No dependency vulnerability audit (`requirements.txt`) was performed -
+  would require network access from the audit environment to do properly
+  (e.g. `pip-audit`).
+- The `/ws/missions` websocket remains unauthenticated (it only broadcasts
+  `mission_id`/`status`/`current_agent`, no sensitive content; browsers
+  don't set a custom header on a WebSocket connection, a query-param-side
+  protection would be needed if this is ever hardened).
+
+**Lesson generalized.** A security tool that tests external targets must
+hold itself to the same standard on its own exposure surface as what it
+audits in others - the complete absence of authentication on the control
+plane is exactly the kind of "MEDIUM: missing headers" finding this
+framework would report on a target itself, except here the consequence
+(launching real attacks on behalf of an unauthorized third party) is far
+more serious than an information leak.
