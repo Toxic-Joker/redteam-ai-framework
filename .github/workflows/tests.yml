@@ -1,0 +1,30 @@
+name: Tests
+
+# Tests unitaires uniquement (tests/) : couvrent le coeur deterministe et les
+# garde-fous de l'orchestrateur, ne necessitent ni Ollama ni les binaires
+# d'outils externes (nmap, gobuster, ...) - voir README.md, section
+# "Developpement local (sans Docker)". Decision de CI notee comme ouverte
+# dans CLAUDE.md, section 12 ; ce workflow la tranche.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer les dependances
+        run: pip install -r requirements-dev.txt
+
+      - name: Lancer la suite de tests
+        run: pytest -q
