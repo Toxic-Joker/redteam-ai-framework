@@ -88,6 +88,19 @@ docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
    report).
 3. Download the PDF report once the mission is complete.
 
+## Report and dashboard language
+
+The generated report (PDF/HTML) and the dashboard UI are in **French**.
+This project was originally built for a French client, and that's the only
+reason — it isn't a technical constraint of the architecture. The LLM's own
+prompts (`agents/*.py`) are also written in French, which is what makes the
+model draft its executive summary, key risks, and immediate actions in
+French too.
+
+If you want the report/dashboard in another language, see the
+"What's validated, and what's left to do" section below for where to make
+that change.
+
 ## Local development (without Docker)
 
 ```bash
@@ -148,6 +161,30 @@ order:
    validated repeatedly against a single lab target (DVWA). The two
    explicit MVP non-goals (`PROJECT.md`) — generality across multiple
    targets and measured evasion against a real EDR/XDR — remain unproven.
+6. **Change the report/dashboard language, if needed.** It's French today
+   only because the project's first client was French, not for any
+   technical reason. Two places to touch, and both need to change together
+   for a consistent result:
+   - The LLM system/user prompts in each agent (`agents/recon_agent.py`,
+     `enum_agent.py`, `exploit_agent.py`, `postexploit_agent.py`,
+     `report_agent.py`) — these tell the model what language to draft its
+     summaries, key risks, and immediate actions in. The deterministic
+     fallback strings right next to them (used when the LLM replies with
+     nothing usable, e.g. `report_agent.py::_fallback_executive_summary`,
+     and every `Finding`/`Lead` text agents construct directly) are plain
+     Python strings, not templated — just translate them like any other
+     string literal.
+   - The hardcoded UI text in `templates/dashboard.html` (labels, buttons,
+     the synthesized log lines in `_diffAndLog`) and `templates/report.html`
+     (section headings, table labels) — these aren't driven by the LLM at
+     all, they're static template text.
+   - Two hardcoded strings in the deterministic core itself:
+     `core/state.py::consolidate_denied_paths` (the consolidated 401/403
+     finding's title/description/remediation) and the automatic
+     "severity capped" note in `Finding.__post_init__`. Everything else in
+     `core/state.py`, the orchestrator, and every tool wrapper is
+     language-agnostic — they only ever pass structured data (severities,
+     booleans, URLs) around.
 
 Every fix already applied (and its exact root cause) is documented
 chronologically in `docs/HISTORY.md` — read it before questioning a
