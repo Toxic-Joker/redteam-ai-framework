@@ -155,4 +155,11 @@ question une regle de `CLAUDE.md` qui semblerait arbitraire hors contexte.
 
 ## Licence
 
-Apache 2.0 (coherente avec la licence des modeles Qwen recommandes).
+Apache 2.0 - voir `LICENSE`. Coherente avec la licence des modeles Qwen
+recommandes (section 3).
+
+Le `Dockerfile` telecharge plusieurs outils tiers depuis leurs depots
+officiels au moment du build (jamais vendored/redistribues dans ce depot) :
+`gobuster` (Apache 2.0), `ffuf`, `nuclei` et `dalfox` (MIT), `sqlmap`
+(GPLv2), `nikto` et `commix` (GPLv3). Chacun reste sous sa propre licence ;
+consulter son depot amont pour le detail exact.
