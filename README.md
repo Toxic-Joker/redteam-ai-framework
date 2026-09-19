@@ -103,6 +103,56 @@ necessitent ni Ollama ni les binaires d'outils externes.
 Voir `.env.example` et `CLAUDE.md`, section 9. Une seule source de verite
 par variable, lue dans `core/config.py`.
 
+## Ce qui est valide, et ce qui reste a faire
+
+Le cycle offensif complet (recon -> enum -> exploit -> postexploit -> rapport)
+a ete valide sur plusieurs missions reelles contre DVWA : injections SQL et
+XSS confirmees par preuve d'outil, severite/risque calcules de facon
+deterministe, une mission qui se termine toujours meme si le LLM local
+boucle ou repond n'importe quoi. Une mission complete tourne desormais en
+20 a 25 minutes environ (contre 70 a 90 minutes avant l'optimisation de la
+concurrence, voir `docs/HISTORY.md` section 18). Un audit de securite du
+framework lui-meme a ferme la lacune la plus consequente (aucune
+authentification sur l'API/dashboard, voir section 20).
+
+**Pour qui reprend ce projet a partir d'ici**, dans un ordre de priorite
+raisonnable :
+
+1. **Definir `API_KEY` avant toute exposition au-dela de sa propre machine.**
+   Vide par defaut pour ne pas casser ce qui existe deja au premier `pull`,
+   mais `docker-compose.yml` publie le port 8000 sur toutes les interfaces
+   reseau (`0.0.0.0`), pas seulement `localhost`. Sans cette variable,
+   quiconque atteint ce port peut lancer une vraie mission contre la cible
+   de son choix. Voir `docs/HISTORY.md`, section 20.
+2. **Scraper le vrai jeton CSRF au lieu de synthetiser `champ=1` pour chaque
+   champ de formulaire** (`tools/crawler_tool.py::_extract_forms`). Les
+   modules DVWA proteges par un jeton CSRF sur une requete POST (Stored
+   XSS, Command Injection) sont aujourd'hui invisibles pour `sqlmap`/
+   `commix`, puisque le jeton synthetise (`user_token=1`) est
+   systematiquement rejete par la cible avant meme d'atteindre la logique
+   vulnerable — pas un echec de ces outils, une limite du remplissage de
+   formulaire du crawler. Lire le vrai `value` de chaque champ ressemblant
+   a un jeton (`token`, `csrf`, `authenticity`) directement dans le HTML
+   deja parse suffit pour la premiere soumission ; au-dela, un jeton a
+   generalement une duree de vie courte et devrait etre re-scrape avant
+   chaque nouvelle tentative plutot que reutilise.
+3. **Passer le conteneur en utilisateur non-root par defaut.**
+   `NMAP_SCAN_MODE=connect` existe deja pour un fonctionnement sans
+   privileges eleves ; il manque la directive `USER` correspondante dans le
+   `Dockerfile` et la validation que chaque outil fonctionne encore sans
+   root.
+4. **Auditer les dependances (`requirements.txt`) contre des CVE connues**
+   (ex. `pip-audit`) — jamais fait faute d'acces reseau depuis
+   l'environnement ou ce projet a ete construit.
+5. **Prouver la generalite sur plusieurs cibles.** Tout ce qui precede a ete
+   valide de facon repetee contre une seule cible de laboratoire (DVWA). Les
+   deux non-buts explicites du MVP (`PROJECT.md`) — generalite multi-cibles
+   et evasion mesuree face a un EDR/XDR reel — restent non prouves.
+
+Chaque correctif deja applique (et sa cause racine exacte) est documente
+chronologiquement dans `docs/HISTORY.md` — a lire avant de remettre en
+question une regle de `CLAUDE.md` qui semblerait arbitraire hors contexte.
+
 ## Licence
 
 Apache 2.0 (coherente avec la licence des modeles Qwen recommandes).
