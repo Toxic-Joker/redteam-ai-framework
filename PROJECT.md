@@ -1,51 +1,96 @@
-# RedTeam AI Framework : document de projet
+# RedTeam AI Framework: project document
 
-Document stable, à ne pas modifier au fil des sessions de développement. Il définit le "pourquoi" et le "pour qui" du projet. Le "comment" technique (architecture, pièges à éviter, choix du modèle, ordre de construction) vit dans `CLAUDE.md`. L'historique complet de la première version vit dans `docs/HISTORY.md`.
+Stable document, not to be modified across development sessions. It defines
+the "why" and the "for whom" of the project. The technical "how"
+(architecture, pitfalls to avoid, model choice, build order) lives in
+`CLAUDE.md`. The full history of the first version lives in
+`docs/HISTORY.md`.
 
 ## Mission
 
-Fournir un framework d'orchestration Red Team multi-agents qui automatise les phases répétitives d'un test d'intrusion (reconnaissance, énumération, exploitation, post-exploitation, rapport), en s'appuyant sur un modèle de langage local pour la synthèse et le raisonnement contextuel, sans jamais laisser ce modèle décider seul des éléments critiques du livrable (sévérité, risque global, structure du rapport).
+Provide a multi-agent Red Team orchestration framework that automates the
+repetitive phases of a penetration test (reconnaissance, enumeration,
+exploitation, post-exploitation, reporting), relying on a local language
+model for synthesis and contextual reasoning, without ever letting that
+model decide alone on the critical elements of the deliverable (severity,
+overall risk, report structure).
 
-## Principe directeur (non négociable)
+## Guiding principle (non-negotiable)
 
-Le modèle de langage est **consultatif**. Il propose, résume, rédige et suggère des pistes. Toute décision engageante (sévérité d'un finding, calcul du risque global, structure du rapport) est **déterministe**, codée en dur, ancrée sur la preuve produite par les outils (codes HTTP, sorties réelles de nmap/gobuster/nikto/sqlmap). On ne gouverne pas un rapport de sécurité sur l'opinion d'un LLM.
+The language model is **consultative**. It proposes, summarizes, drafts,
+and suggests leads. Every consequential decision (a finding's severity, the
+overall risk calculation, the report structure) is **deterministic**,
+hard-coded, grounded in the evidence produced by the tools (HTTP status
+codes, real output from nmap/gobuster/nikto/sqlmap). A security report is
+never governed by an LLM's opinion.
 
-Ce principe ne dépend pas de la qualité du modèle choisi. Même avec un modèle fiable, la séparation des autorités de décision reste la règle : elle sert l'auditabilité et la gouvernance du livrable, pas seulement la compensation d'un modèle faible.
+This principle doesn't depend on the quality of the chosen model. Even with
+a reliable model, separating decision authority remains the rule: it serves
+the deliverable's auditability and governance, not just compensation for a
+weak model.
 
-## À qui ce projet s'adresse
+## Who this project is for
 
-- **Pentesters / Red Team** : gain de temps sur les phases répétitives (recon, énumération, rapport), pour se concentrer sur l'exploitation à forte valeur.
-- **SOC / Blue Team** : une base d'exposition reproductible et rejouable, comparable dans le temps, avec peu de faux positifs grâce à la séparation entre findings confirmés et pistes spéculatives.
-- **Gouvernance, risque et conformité (GRC)** : un score de risque déterministe et un rapport auditable, défendable en audit.
-- **Hardening / RETEX** : un livrable consolidé qui alimente directement les cycles de remédiation.
+- **Pentesters / Red Team**: time savings on repetitive phases (recon,
+  enumeration, reporting), to focus on high-value exploitation.
+- **SOC / Blue Team**: a reproducible, replayable exposure baseline,
+  comparable over time, with few false positives thanks to the separation
+  between confirmed findings and speculative leads.
+- **Governance, Risk and Compliance (GRC)**: a deterministic risk score and
+  an auditable report, defensible during an audit.
+- **Hardening / lessons-learned**: a consolidated deliverable that feeds
+  directly into remediation cycles.
 
-## Portée du MVP (v1)
+## MVP scope (v1)
 
-- Cycle complet automatisé : reconnaissance, énumération, exploitation prudente (preuve requise avant toute sévérité élevée), post-exploitation, génération de rapport PDF.
-- Interface web : saisie de la cible et de la référence d'autorisation, suivi de mission en temps réel, téléchargement du rapport.
-- Fonctionne contre une cible externe quelconque (pas seulement en réseau local), y compris quand la découverte ICMP est bloquée.
-- Séparation stricte entre findings confirmés (impactent le risque) et pistes spéculatives (n'impactent jamais le risque).
-- Déploiement en une commande (`docker compose up`) sur une machine neuve, sans intervention manuelle.
+- Fully automated cycle: reconnaissance, enumeration, cautious exploitation
+  (proof required before any high severity), post-exploitation, PDF report
+  generation.
+- Web interface: enter the target and authorization reference, follow the
+  mission in real time, download the report.
+- Works against any external target (not just on a local network),
+  including when ICMP discovery is blocked.
+- Strict separation between confirmed findings (affect the risk score) and
+  speculative leads (never affect the risk score).
+- One-command deployment (`docker compose up`) on a fresh machine, with no
+  manual intervention.
 
-## Hors périmètre pour le MVP (non-goals explicites)
+## Out of scope for the MVP (explicit non-goals)
 
-- Évasion mesurée face à des solutions EDR/XDR réelles. Les niveaux d'évasion restent un paramètre configurable, non validé.
-- Généralité prouvée sur plusieurs cibles/OS. La reproductibilité (même résultat sur la même cible) est un objectif du MVP ; la généralité (comportement sur des cibles hétérogènes) ne l'est pas.
-- Garde-fous légaux complets au-delà de la référence d'autorisation obligatoire et de la journalisation.
-- Mesure chiffrée du gain de temps par rapport à un audit manuel. Objectif secondaire une fois le MVP stable : comparer le temps de mission avant/après changement de modèle.
+- Measured evasion against real EDR/XDR solutions. Evasion levels remain a
+  configurable parameter, not validated.
+- Proven generality across multiple targets/OSes. Reproducibility (same
+  result on the same target) is an MVP goal; generality (behavior across
+  heterogeneous targets) is not.
+- Complete legal guardrails beyond the mandatory authorization reference and
+  logging.
+- Quantified measurement of time saved compared to a manual audit. Secondary
+  goal once the MVP is stable: compare mission time before/after a model
+  change.
 
-## Contraintes non négociables
+## Non-negotiable constraints
 
-- Docker-first dès le premier commit, pas ajouté après coup.
-- Aucune cible vulnérable embarquée dans le `docker-compose.yml`. La cible est toujours externe.
-- Modèle de langage exécuté en local (contrainte de confidentialité, non négociable).
-- Budget de taille total (images + poids du modèle) : cible réelle 8 à 10 Go, plafond de sécurité 25 Go à ne jamais dépasser.
+- Docker-first from the first commit, not added afterward.
+- No vulnerable target bundled in `docker-compose.yml`. The target is always
+  external.
+- Language model run locally (confidentiality constraint, non-negotiable).
+- Total size budget (images + model weights): real target 8 to 10 GB, safety
+  ceiling of 25 GB never to be exceeded.
 
-## Définition du succès
+## Definition of success
 
-Voir la section "Critères de validation du MVP" de `CLAUDE.md` pour la liste technique complète. En résumé : une mission se termine toujours, un finding sans preuve d'exploitation ne dépasse jamais MEDIUM, le risque global est reproductible d'une exécution à l'autre sur la même cible, et `git clone` puis `docker compose up --build` fonctionne sans intervention manuelle sur une machine neuve.
+See the "MVP validation criteria" section of `CLAUDE.md` for the full
+technical list. In summary: a mission always completes, a finding without
+proof of exploitation never exceeds MEDIUM, the overall risk is reproducible
+from one run to another on the same target, and `git clone` followed by
+`docker compose up --build` works with no manual intervention on a fresh
+machine.
 
-## Documents liés
+## Related documents
 
-- `CLAUDE.md` : blueprint technique (architecture, pièges Docker et réseau à éviter, choix du modèle, arborescence, ordre de construction). Lu automatiquement par Claude Code à chaque session de travail sur ce dépôt.
-- `docs/HISTORY.md` : rétrospective complète de la première version du projet (mémoire de Mastère EFREI, soutenue) : ce qui a été tenté, ce qui a cassé, ce qui a été corrigé.
+- `CLAUDE.md`: technical blueprint (architecture, Docker/network pitfalls to
+  avoid, model choice, directory layout, build order). Read automatically by
+  Claude Code at every work session on this repo.
+- `docs/HISTORY.md`: full retrospective of the project's first version
+  (EFREI Master's thesis, defended): what was tried, what broke, what was
+  fixed.
