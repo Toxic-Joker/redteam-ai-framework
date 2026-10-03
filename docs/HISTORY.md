@@ -846,3 +846,58 @@ external analysis of the project itself - a confident, well-formatted
 report is not evidence, and claims about this codebase's current state are
 checked against the actual code (a grep, a read, a test run), never taken
 at face value regardless of how detailed or authoritative they sound.
+
+## 22. Every nmap vuln script treated as "positif," including negative and failed ones (2026-10-04)
+
+Two real reports from the same session (one against an external domain,
+one against DVWA) surfaced a false-positive source in `recon_agent.py`
+that had gone unnoticed until a human actually read a generated report
+closely. Of 33 findings in the external-target report, a majority were
+MEDIUM entries titled "Script nmap `<id>` positif sur le port `<port>`"
+whose own stored evidence read, verbatim, "Couldn't find any stored XSS
+vulnerabilities," "Couldn't find any CSRF vulnerabilities," or "ERROR:
+Script execution failed (use -d to debug)" - the opposite of a positive
+result, or no result at all.
+
+Root cause: `recon_agent.py`'s vuln-phase loop (added at `core/state.py`'s
+founding, per the build order) creates a `Finding` for every script nmap's
+`--script=vuln` mode returns, with zero inspection of the script's actual
+output - `tools/nmap_tool.py::parse_output` passes every `<script>` XML
+element straight through unfiltered. This is the same category of mistake
+CLAUDE.md already prohibits for `sqlmap` ("never combine independent
+keywords present anywhere in the output... a single unambiguous positive
+signal, checked line by line") but the rule had never been applied to
+nmap's own NSE vuln scripts - an unguarded blind spot, not a deliberate
+exception. The underlying nmap behavior that made this possible: unlike
+most NSE scripts (silent when nothing is found), several `http-*`
+vuln-category scripts (`http-stored-xss`, `http-csrf`,
+`http-dombased-xss`, ...) print a conclusion line even in the negative
+case - confirmed by reading the actual script output captured in the real
+report, not assumed from nmap's general documentation (the same discipline
+as the dalfox/nikto incidents, sections 16-17).
+
+Fix: before constructing a `Finding`, check the script's output
+case-insensitively for two markers observed verbatim in real reports -
+`"couldn't find"` (an explicit negative result stated by the script
+itself: skip, no finding, no error) and `"error: script execution
+failed"` (the script didn't run at all: `log_error`, not a finding - a
+tool failure must never be reported as a vulnerability). Anything else
+(a `VULNERABLE:` block, a directory listing from `http-enum`, an
+unauthenticated endpoint from `http-vuln-cve2010-0738`) still becomes a
+MEDIUM finding exactly as before. Three regression tests added to
+`tests/test_agents.py` covering the negative, failed, and genuine-positive
+cases.
+
+**Lesson generalized.** A report is the framework's only user-facing
+output, and the deterministic core's guarantees (severity capping,
+findings/leads separation, dedup) say nothing about whether a finding
+should have existed as a `Finding` at all. The DVWA report generated in
+the same session is the positive control: 5 real `exploited=True`
+CRITICALs (3 sqlmap, 2 dalfox) correctly separated from 7 unconfirmed
+dalfox reflected-payload hits that correctly stayed `Lead`s at 30%
+confidence, never entering the risk calculation - proof the
+findings/leads separation and severity capping work exactly as designed
+once a tool's output is parsed correctly in the first place. The
+deterministic core cannot rescue a finding that should never have been
+constructed; reading a generated report end to end, not just running the
+test suite, is what caught this one.
