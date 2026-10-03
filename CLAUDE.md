@@ -139,6 +139,15 @@ discovered in production.
       **negative** messages (`"parameter 'id' is NOT injectable"`). A
       single unambiguous positive signal, checked line by line (see
       `docs/HISTORY.md`, section 6).
+- [ ] `nmap` vuln-script results: a script appearing in `--script=vuln`
+      output is not itself a positive signal. Several `http-*` scripts
+      (`http-stored-xss`, `http-csrf`, ...) print a conclusion line even in
+      the negative case, unlike most NSE scripts which stay silent when
+      nothing is found; a failed script (`ERROR: Script execution
+      failed`) must become a logged error, never a `Finding`. Same
+      category of mistake as the `sqlmap` rule above, caught much later
+      because it was never applied to nmap's own vuln scripts
+      (`docs/HISTORY.md`, section 22).
 - [ ] Start a mission with `asyncio.create_task` (handle kept to allow
       cancellation), never FastAPI's `BackgroundTasks`, which gives no way
       to interrupt a running mission.

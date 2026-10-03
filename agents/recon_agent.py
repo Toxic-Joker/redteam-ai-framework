@@ -20,6 +20,16 @@ from tools.nmap_tool import NmapTool
 
 from .base_agent import BaseAgent
 
+# nmap's own NSE vuln-category scripts (http-stored-xss, http-csrf, ...)
+# print a conclusion line even in the negative case, unlike most NSE
+# scripts which stay silent when nothing is found - so a script simply
+# appearing in the output is not itself a positive signal (docs/HISTORY.md,
+# section 22). These two markers were observed verbatim in real output and
+# cover the two negative shapes seen so far: an explicit negative result
+# stated by the script itself, and the script failing to run at all.
+_NMAP_VULN_NEGATIVE_MARKER = "couldn't find"
+_NMAP_VULN_ERROR_MARKER = "error: script execution failed"
+
 # A -O guess below this confidence threshold must never appear as a fact
 # in the report (see CLAUDE.md, section 2 and docs/HISTORY.md, section 3:
 # nmap -O produced absurd results at high displayed confidence on
@@ -122,13 +132,24 @@ class ReconAgent(BaseAgent):
         state.tool_results.append({"agent": self.name, "tool": "nmap-vuln", "result": vuln_result.parsed})
         for port in vuln_result.parsed.get("open_ports", []):
             for script in port.get("scripts", []):
+                output = script.get("output") or ""
+                output_lower = output.lower()
+                if _NMAP_VULN_ERROR_MARKER in output_lower:
+                    self.log_error(
+                        state,
+                        f"Script nmap {script['id']} sur le port {port['port']} a echoue a l'execution "
+                        "(pas une constatation, pas de preuve collectee).",
+                    )
+                    continue
+                if _NMAP_VULN_NEGATIVE_MARKER in output_lower:
+                    continue
                 state.add_finding(
                     Finding(
                         title=f"Script nmap {script['id']} positif sur le port {port['port']}",
                         severity=Severity.MEDIUM,
-                        description=(script.get("output") or "")[:500],
+                        description=output[:500],
                         affected_component=f"{host}:{port['port']} ({port.get('service', 'unknown')})",
-                        evidence=script.get("output", ""),
+                        evidence=output,
                         discovered_by=self.name,
                         exploited=False,
                         remediation=(

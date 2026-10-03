@@ -103,6 +103,67 @@ async def test_dns_records_become_a_lead_never_a_finding(monkeypatch):
     assert result.findings == []
 
 
+def _vuln_result_with_script(script_id: str, output: str) -> ToolResult:
+    result = _empty_nmap_result()
+    result.parsed["open_ports"] = [
+        {"port": 80, "service": "http", "scripts": [{"id": script_id, "output": output}]}
+    ]
+    return result
+
+
+@pytest.mark.asyncio
+async def test_nmap_vuln_script_negative_result_is_not_a_finding(monkeypatch):
+    # The script itself states a negative result (e.g. http-stored-xss,
+    # http-csrf): its mere presence in nmap's output is not a positive
+    # signal (docs/HISTORY.md, section 22).
+    monkeypatch.setattr(recon_agent_module, "_dns_recon", lambda host: [])
+    vuln = _vuln_result_with_script("http-stored-xss", "Couldn't find any stored XSS vulnerabilities.")
+    agent = _make_recon_agent({"discovery": _empty_nmap_result(), "ports": _empty_nmap_result(), "vuln": vuln})
+    mission = MissionState(
+        mission_id="m4", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+
+    result = await agent.run(mission)
+
+    assert result.findings == []
+    assert result.errors == []
+
+
+@pytest.mark.asyncio
+async def test_nmap_vuln_script_execution_failure_becomes_an_error_not_a_finding(monkeypatch):
+    # The script failed to run at all (ERROR: Script execution failed): a
+    # tool failure, not a vulnerability - must not inflate the finding count.
+    monkeypatch.setattr(recon_agent_module, "_dns_recon", lambda host: [])
+    vuln = _vuln_result_with_script("http-vuln-cve2013-7091", "ERROR: Script execution failed (use -d to debug)")
+    agent = _make_recon_agent({"discovery": _empty_nmap_result(), "ports": _empty_nmap_result(), "vuln": vuln})
+    mission = MissionState(
+        mission_id="m5", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+
+    result = await agent.run(mission)
+
+    assert result.findings == []
+    assert len(result.errors) == 1
+    assert "http-vuln-cve2013-7091" in result.errors[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_nmap_vuln_script_genuine_positive_result_becomes_a_finding(monkeypatch):
+    monkeypatch.setattr(recon_agent_module, "_dns_recon", lambda host: [])
+    vuln = _vuln_result_with_script(
+        "http-slowloris-check", "VULNERABLE:\n  Slowloris DOS attack\n  State: LIKELY VULNERABLE"
+    )
+    agent = _make_recon_agent({"discovery": _empty_nmap_result(), "ports": _empty_nmap_result(), "vuln": vuln})
+    mission = MissionState(
+        mission_id="m6", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+
+    result = await agent.run(mission)
+
+    assert len(result.findings) == 1
+    assert "http-slowloris-check" in result.findings[0].title
+
+
 class _StubEnumTool:
     def __init__(self, parsed: dict) -> None:
         self._parsed = parsed
