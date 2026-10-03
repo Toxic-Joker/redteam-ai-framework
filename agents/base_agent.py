@@ -45,6 +45,16 @@ class BaseAgent(ABC):
             # docs/HISTORY.md, section 18).
             num_predict=settings.llm_num_predict,
             client_kwargs={"timeout": settings.llm_timeout_seconds},
+            # Every prompt in this file also explicitly says "Reponds
+            # uniquement en JSON" - none mix prose with JSON - so
+            # constraining generation to valid JSON at the source via
+            # Ollama's own format=json is safe here. This reduces malformed
+            # replies before they ever reach _extract_json below, it
+            # doesn't replace it: a model can still return syntactically
+            # valid JSON that's missing an expected key or has the wrong
+            # shape, so the tolerant parsing and every deterministic
+            # fallback stay exactly as they are.
+            format="json",
         )
 
     async def ask_llm(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
