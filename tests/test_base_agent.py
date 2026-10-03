@@ -5,6 +5,18 @@ These tests cover the real imperfections of a small local model, not just
 the perfectly well-formed JSON case.
 """
 from agents.base_agent import BaseAgent
+from agents.recon_agent import ReconAgent
+
+
+def test_llm_is_constrained_to_json_output():
+    # Every agent's system_prompt says "Reponds uniquement en JSON" - none
+    # mix prose with JSON - so constraining generation at the source via
+    # Ollama's format=json is safe and reduces malformed replies before
+    # they ever reach _extract_json. Doesn't replace the tolerant parsing
+    # or any deterministic fallback: a model can still return syntactically
+    # valid JSON with the wrong shape.
+    agent = ReconAgent()
+    assert agent._llm.format == "json"
 
 
 def test_extract_json_parses_plain_valid_json():

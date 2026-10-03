@@ -793,3 +793,56 @@ plane is exactly the kind of "MEDIUM: missing headers" finding this
 framework would report on a target itself, except here the consequence
 (launching real attacks on behalf of an unauthorized third party) is far
 more serious than an information leak.
+
+## 21. Constraining LLM output to JSON at generation time (2026-10-03)
+
+An external analysis of this repo (pasted in by the user) contained a mix
+of valid points and confidently-stated claims that didn't hold up against
+the actual code: it described the orchestrator as sequential (already
+fixed, section 18), warned about LangGraph checkpoint/Redis state-size
+degradation (this project never used LangGraph's checkpointer or Redis -
+persistence is a plain SQLite table, `core/memory.py::MissionStore`), and
+recommended batching LLM calls to one per phase (already the design - every
+agent calls `ask_llm` exactly once, at the end of its phase, verified by
+grepping for `ask_llm` across `agents/*.py`). Several of its "research
+backing" citations (a named framework, a named platform, a named paper,
+specific-sounding stats like "42.9% context reduction, 1.91s overhead")
+could not be independently verified and were flagged as likely fabricated -
+the same failure mode as the dalfox/nikto incidents (sections 16-17), just
+coming from outside the project this time instead of from documentation
+consulted while writing code.
+
+**What survived the critique**, after stripping the inapplicable parts:
+CSRF token scraping, the non-root Docker user, and a dependency CVE audit
+were already this project's own README next-steps items (#2-4) - no new
+information there. Two items were genuinely new:
+
+- **Constrain Ollama's own output to JSON** (`format="json"` on
+  `ChatOllama`, a real field confirmed by extracting the pinned
+  `langchain-ollama==0.2.0` wheel directly rather than assumed:
+  `format: Literal["", "json"] = ""` in `chat_models.py`, forwarded to
+  every API call path). Safe here specifically because every agent's
+  system prompt already says "Reponds uniquement en JSON" with no prompt
+  mixing prose and JSON (verified by grep before changing anything) - a
+  prompt that asked for narrative text alongside JSON would have its prose
+  silently stripped by this constraint, which is exactly the caveat that
+  made this worth checking first rather than assumed safe. Implemented
+  once in `agents/base_agent.py::BaseAgent.__init__`, applies to every
+  agent. This reduces malformed replies at the source; it does not replace
+  `_extract_json`'s tolerant parsing or any deterministic fallback -
+  Ollama's `format=json` only guarantees syntactically valid JSON, not that
+  it has the expected keys or shape.
+- **Phase-level timing/metrics** (duration, tool-call count, LLM-call
+  count per phase) - closes the gap section 5 flags ("time saved vs. manual
+  audit... never measured"). Deliberately filed in the README's next-steps
+  list rather than built this session: it's small, but deciding where to
+  instrument (per-agent, per-tool, or both) is a design call worth making
+  deliberately rather than guessing at under time pressure.
+
+**Lesson generalized.** The same external-verification discipline this
+project already applies to tool documentation (section 16: don't trust a
+tool's general docs, read its real source) applies just as much to an
+external analysis of the project itself - a confident, well-formatted
+report is not evidence, and claims about this codebase's current state are
+checked against the actual code (a grep, a read, a test run), never taken
+at face value regardless of how detailed or authoritative they sound.

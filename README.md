@@ -185,6 +185,14 @@ order:
      `core/state.py`, the orchestrator, and every tool wrapper is
      language-agnostic — they only ever pass structured data (severities,
      booleans, URLs) around.
+7. **Instrument phase-level timing/metrics** (duration, tool-call count,
+   LLM-call count per phase). Time saved versus a manual audit has never
+   been measured (`docs/HISTORY.md`, section 5) — this closes that gap
+   without touching the deterministic core (pure observability; no
+   decision consumes the numbers). Deliberately left open rather than
+   built: deciding where to instrument (per-agent, per-tool, or both) is a
+   design call worth making deliberately, not guessed at under time
+   pressure (`docs/HISTORY.md`, section 21).
 
 Every fix already applied (and its exact root cause) is documented
 chronologically in `docs/HISTORY.md` — read it before questioning a

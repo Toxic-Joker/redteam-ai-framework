@@ -181,6 +181,23 @@ discovered in production.
       (`MissionState.add_finding`/`add_lead`), never an assumed guarantee
       just because one tool (nuclei) redacts its own output
       (`docs/HISTORY.md`, section 20).
+- [ ] `BaseAgent`'s `ChatOllama` is constructed with `format="json"`
+      (`agents/base_agent.py`), constraining generation to valid JSON at
+      the source rather than relying solely on `_extract_json`'s tolerant
+      parsing after the fact. Only safe because every agent's system
+      prompt says "Reponds uniquement en JSON" with no prompt mixing prose
+      and JSON — verify that holds before adding a new prompt, since
+      `format="json"` would silently strip any narrative text a mixed
+      prompt asked for (`docs/HISTORY.md`, section 21). Doesn't replace the
+      tolerant parsing or any deterministic fallback: valid JSON can still
+      have the wrong shape.
+- [ ] An external analysis of this project (not just a tool's own docs) is
+      verified the same way as everything else, never taken at face value
+      for being detailed or confidently written: check its claims against
+      the actual code (grep, read, run the tests) before acting on any of
+      them, and treat an unverifiable citation (a named project, paper, or
+      suspiciously precise statistic) as unverified, not as evidence
+      (`docs/HISTORY.md`, section 21).
 
 ---
 
