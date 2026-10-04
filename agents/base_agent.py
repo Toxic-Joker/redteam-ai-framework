@@ -7,6 +7,7 @@ section 11: a mission always completes).
 from __future__ import annotations
 
 import json
+import logging
 import re
 from abc import ABC, abstractmethod
 from typing import Any, Optional
@@ -15,6 +16,8 @@ from langchain_ollama import ChatOllama
 
 from core.config import get_settings
 from core.state import MissionState
+
+logger = logging.getLogger(__name__)
 
 
 def _try_json_object(text: str) -> Optional[dict[str, Any]]:
@@ -66,8 +69,18 @@ class BaseAgent(ABC):
                 ]
             )
             content = response.content if isinstance(response.content, str) else str(response.content)
-            return self._extract_json(content)
+            # Logged before parsing, at DEBUG, specifically so "why did the
+            # LLM contribute nothing to this report" is answerable from
+            # logs on the next run instead of requiring a guess - nothing
+            # captured the raw reply anywhere before this (docs/HISTORY.md,
+            # section 25).
+            logger.debug("[%s] raw LLM response (%d chars): %r", self.name, len(content), content[:2000])
+            parsed = self._extract_json(content)
+            if not parsed:
+                logger.warning("[%s] LLM reply produced no usable JSON (raw length %d)", self.name, len(content))
+            return parsed
         except Exception as exc:  # noqa: BLE001 - the mission must never stop over an LLM issue
+            logger.warning("[%s] LLM call failed: %s", self.name, exc)
             return {"_llm_error": str(exc)}
 
     @staticmethod

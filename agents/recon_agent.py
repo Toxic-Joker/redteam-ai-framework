@@ -20,37 +20,41 @@ from tools.nmap_tool import NmapTool
 
 from .base_agent import BaseAgent
 
-# nmap's own NSE vuln-category scripts (http-stored-xss, http-csrf, ...)
-# print a conclusion line even in the negative case, unlike most NSE
-# scripts which stay silent when nothing is found - so a script simply
-# appearing in the output is not itself a positive signal (docs/HISTORY.md,
-# section 22). "couldn't find" covers scripts with their own custom
-# negative message. "not vulnerable" and "unknown (unable to test)" come
-# from nmap's own nselib/vulns.lua STATE_MSG table, 78277 bytes as of
-# 2026-10-04, lines 396-404:
-#   STATE_MSG = {
-#     [STATE.LIKELY_VULN] = 'LIKELY VULNERABLE',
-#     [STATE.NOT_VULN] = 'NOT VULNERABLE',
-#     [STATE.VULN] = 'VULNERABLE',
-#     [STATE.DoS] = 'VULNERABLE (DoS)',
-#     [STATE.EXPLOIT] = 'VULNERABLE (Exploitable)',
-#     [STATE.UNKNOWN] = 'UNKNOWN (unable to test)',
-#   }
-# (two bitwise-OR'd duplicate keys omitted above for brevity - full table
-# in docs/HISTORY.md, section 24). Neither "not vulnerable" nor "unknown"
-# has actually appeared in a real captured report yet - every
-# negative/inconclusive script seen so far used a custom "couldn't find"
-# message instead. This is a protective addition grounded in the real
-# framework source, not yet validated against real output the way
-# "couldn't find" and the error marker below were.
+# nmap's own NSE vuln-category scripts don't all share one output
+# convention, any more than gobuster/ffuf/nuclei/dalfox share one archive
+# layout (CLAUDE.md, section 2) - so a script simply appearing in
+# --script=vuln output is not itself a positive signal (docs/HISTORY.md,
+# section 22). Incidents 22-24 fixed this one negative phrasing at a time
+# (a blocklist), each catching the next shape the previous pass hadn't
+# seen; section 25 replaces that with CLAUDE.md's sqlmap rule applied
+# here instead - "a single unambiguous positive signal, checked line by
+# line" - for the subset of scripts that give one: nselib/vulns.lua
+# always prints a "State: <value>" conclusion line (78277 bytes as of
+# 2026-10-04, line 1834: string_format("  State: %s",
+# STATE_MSG[vuln_table.state])), so for those scripts the State: line
+# itself is ground truth, not an enumerated list of known-bad phrasings.
+_NMAP_VULN_STATE_MARKER = "state:"
+# Deliberately matches "State: VULNERABLE", "State: VULNERABLE (DoS)" and
+# "State: VULNERABLE (Exploitable)" (all three start with this exact
+# substring, per vulns.lua's STATE_MSG table, docs/HISTORY.md section 24)
+# while excluding "State: LIKELY VULNERABLE" and "State: NOT VULNERABLE"
+# (a different word immediately follows "State: " in both).
+_NMAP_VULN_STATE_POSITIVE = "state: vulnerable"
+_NMAP_VULN_STATE_LIKELY = "state: likely vulnerable"
+# "State: UNKNOWN (unable to test)" falls through both checks above and
+# is silently not a Finding - inconclusive, not confirmed either way.
+
 _NMAP_VULN_ERROR_MARKER = "error: script execution failed"
-_NMAP_VULN_NEGATIVE_MARKERS = ("couldn't find", "not vulnerable", "unknown (unable to test)")
-# vulns.lua's own LIKELY_VULN state is explicitly a heuristic, not a
-# confirmed result - never a fact in a report, same principle already
-# applied to a low-confidence nmap -O guess above (docs/HISTORY.md,
-# section 23). Checked before the generic Finding path, not after:
-# "VULNERABLE" is itself a substring of "LIKELY VULNERABLE".
-_NMAP_VULN_LIKELY_MARKER = "likely vulnerable"
+# Scripts with no "State:" line at all don't use vulns.lua (http-enum's
+# plain directory listing, http-vuln-cve2010-0738's bare
+# "/jmx-console/: Authentication was not required") and have no single
+# shared positive/negative convention across them - this allowlist only
+# closes the vulns.lua category, not this one. "couldn't find" is the one
+# negative phrasing actually observed in real captured output for this
+# remaining category; this is still the blocklist pattern section 25
+# moves away from for vulns.lua scripts, kept here for lack of a better
+# generalizable alternative (docs/HISTORY.md, section 25).
+_NMAP_VULN_NEGATIVE_MARKER = "couldn't find"
 
 # A -O guess below this confidence threshold must never appear as a fact
 # in the report (see CLAUDE.md, section 2 and docs/HISTORY.md, section 3:
@@ -150,52 +154,67 @@ class ReconAgent(BaseAgent):
                     )
                 )
 
+        def _make_vuln_finding(script_id: str, port_num: int, service: str, output: str) -> Finding:
+            return Finding(
+                title=f"Script nmap {script_id} positif sur le port {port_num}",
+                severity=Severity.MEDIUM,
+                description=output[:500],
+                affected_component=f"{host}:{port_num} ({service})",
+                evidence=output,
+                discovered_by=self.name,
+                exploited=False,
+                remediation=(
+                    f"Examiner le resultat du script nmap {script_id} et appliquer le "
+                    "correctif ou le durcissement de configuration recommande par l'editeur "
+                    "du service concerne. Desactiver ce service s'il n'est pas necessaire."
+                ),
+                tags=["nmap-vuln"],
+            )
+
         vuln_result = await self.nmap.run(target=host, mode="vuln")
         state.tool_results.append({"agent": self.name, "tool": "nmap-vuln", "result": vuln_result.parsed})
         for port in vuln_result.parsed.get("open_ports", []):
             for script in port.get("scripts", []):
+                script_id = script["id"]
+                port_num = port["port"]
+                service = port.get("service", "unknown")
                 output = script.get("output") or ""
                 output_lower = output.lower()
+
                 if _NMAP_VULN_ERROR_MARKER in output_lower:
                     self.log_error(
                         state,
-                        f"Script nmap {script['id']} sur le port {port['port']} a echoue a l'execution "
+                        f"Script nmap {script_id} sur le port {port_num} a echoue a l'execution "
                         "(pas une constatation, pas de preuve collectee).",
                     )
                     continue
-                if any(marker in output_lower for marker in _NMAP_VULN_NEGATIVE_MARKERS):
-                    continue
-                if _NMAP_VULN_LIKELY_MARKER in output_lower:
-                    state.add_lead(
-                        Lead(
-                            title=f"Script nmap {script['id']} possiblement positif sur le port {port['port']}",
-                            rationale=(
-                                f"nmap rapporte un etat LIKELY VULNERABLE (heuristique, non confirme) "
-                                f"pour {script['id']} : {output[:300]}"
-                            ),
-                            source=self.name,
-                            confidence=0.5,
-                            tags=["nmap-vuln-likely"],
+
+                if _NMAP_VULN_STATE_MARKER in output_lower:
+                    # vulns.lua-based script: the State: line is ground
+                    # truth. NOT VULNERABLE / UNKNOWN fall through both
+                    # checks below and are silently not a Finding.
+                    if _NMAP_VULN_STATE_LIKELY in output_lower:
+                        state.add_lead(
+                            Lead(
+                                title=f"Script nmap {script_id} possiblement positif sur le port {port_num}",
+                                rationale=(
+                                    "nmap rapporte un etat LIKELY VULNERABLE (heuristique, non confirme) "
+                                    f"pour {script_id} : {output[:300]}"
+                                ),
+                                source=self.name,
+                                confidence=0.5,
+                                tags=["nmap-vuln-likely"],
+                            )
                         )
-                    )
+                    elif _NMAP_VULN_STATE_POSITIVE in output_lower:
+                        state.add_finding(_make_vuln_finding(script_id, port_num, service, output))
                     continue
-                state.add_finding(
-                    Finding(
-                        title=f"Script nmap {script['id']} positif sur le port {port['port']}",
-                        severity=Severity.MEDIUM,
-                        description=output[:500],
-                        affected_component=f"{host}:{port['port']} ({port.get('service', 'unknown')})",
-                        evidence=output,
-                        discovered_by=self.name,
-                        exploited=False,
-                        remediation=(
-                            f"Examiner le resultat du script nmap {script['id']} et appliquer le "
-                            "correctif ou le durcissement de configuration recommande par l'editeur "
-                            "du service concerne. Desactiver ce service s'il n'est pas necessaire."
-                        ),
-                        tags=["nmap-vuln"],
-                    )
-                )
+
+                # No "State:" line: not a vulns.lua script - fall back to
+                # the one negative phrasing observed for this category.
+                if _NMAP_VULN_NEGATIVE_MARKER in output_lower:
+                    continue
+                state.add_finding(_make_vuln_finding(script_id, port_num, service, output))
 
         llm_summary = await self.ask_llm(
             system_prompt=(

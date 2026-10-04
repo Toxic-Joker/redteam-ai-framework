@@ -140,21 +140,25 @@ discovered in production.
       single unambiguous positive signal, checked line by line (see
       `docs/HISTORY.md`, section 6).
 - [ ] `nmap` vuln-script results: a script appearing in `--script=vuln`
-      output is not itself a positive signal. Several `http-*` scripts
-      (`http-stored-xss`, `http-csrf`, ...) print a conclusion line even in
-      the negative case, unlike most NSE scripts which stay silent when
-      nothing is found; a failed script (`ERROR: Script execution
-      failed`) must become a logged error, never a `Finding`. Same
-      category of mistake as the `sqlmap` rule above, caught much later
-      because it was never applied to nmap's own vuln scripts
-      (`docs/HISTORY.md`, section 22). nmap's own `nselib/vulns.lua`
-      STATE_MSG table (verified from the real source) defines the full
-      state set: `VULNERABLE`, `LIKELY VULNERABLE`, `NOT VULNERABLE`,
-      `VULNERABLE (DoS)`, `VULNERABLE (Exploitable)`, `UNKNOWN (unable to
-      test)` — `NOT VULNERABLE`/`UNKNOWN` are negative results like
-      `"couldn't find"`, and `LIKELY VULNERABLE` is a heuristic that must
-      become a `Lead`, never a `Finding` — same principle as a
-      low-confidence `-O` guess above (`docs/HISTORY.md`, section 23).
+      output is not itself a positive signal; a failed script (`ERROR:
+      Script execution failed`) must become a logged error, never a
+      `Finding`. For scripts using nmap's own `nselib/vulns.lua`
+      framework (identifiable by a `"State:"` conclusion line), apply the
+      `sqlmap` rule above directly — an allowlist, not a blocklist:
+      `"state: vulnerable"` as a substring is the single unambiguous
+      positive signal (it matches `VULNERABLE`, `VULNERABLE (DoS)` and
+      `VULNERABLE (Exploitable)`, all three sharing that prefix, while
+      excluding `LIKELY VULNERABLE` and `NOT VULNERABLE`); `LIKELY
+      VULNERABLE` becomes a `Lead` (heuristic, same principle as a
+      low-confidence `-O` guess above), `NOT VULNERABLE`/`UNKNOWN (unable
+      to test)` become nothing at all. Scripts with no `"State:"` line
+      (`http-enum`, `http-vuln-cve2010-0738`) don't use this framework and
+      have no shared convention to allowlist on — a blocklist
+      (`"couldn't find"`) remains there for lack of a better
+      generalizable alternative, and the code says so rather than
+      implying otherwise (`docs/HISTORY.md`, sections 22-25: three
+      blocklist patches before switching to an allowlist for the subset
+      that actually supports one).
 - [ ] A deterministic report-building function that collects text across
       multiple findings (e.g. `ReportAgent._fallback_immediate_actions`)
       must deduplicate before truncating to a display limit — several
