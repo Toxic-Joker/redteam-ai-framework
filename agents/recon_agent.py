@@ -25,12 +25,24 @@ from .base_agent import BaseAgent
 # scripts which stay silent when nothing is found - so a script simply
 # appearing in the output is not itself a positive signal (docs/HISTORY.md,
 # section 22). "couldn't find" covers scripts with their own custom
-# negative message; "not vulnerable" and "unknown (unable to test)" are
-# the other two negative/inconclusive states nmap's own nselib/vulns.lua
-# STATE_MSG table defines (confirmed by reading the real source, not
-# assumed from one example - the same discipline as the dalfox/nikto
-# rules) alongside VULNERABLE, VULNERABLE (DoS) and VULNERABLE
-# (Exploitable), which do stay Findings (docs/HISTORY.md, section 23).
+# negative message. "not vulnerable" and "unknown (unable to test)" come
+# from nmap's own nselib/vulns.lua STATE_MSG table, 78277 bytes as of
+# 2026-10-04, lines 396-404:
+#   STATE_MSG = {
+#     [STATE.LIKELY_VULN] = 'LIKELY VULNERABLE',
+#     [STATE.NOT_VULN] = 'NOT VULNERABLE',
+#     [STATE.VULN] = 'VULNERABLE',
+#     [STATE.DoS] = 'VULNERABLE (DoS)',
+#     [STATE.EXPLOIT] = 'VULNERABLE (Exploitable)',
+#     [STATE.UNKNOWN] = 'UNKNOWN (unable to test)',
+#   }
+# (two bitwise-OR'd duplicate keys omitted above for brevity - full table
+# in docs/HISTORY.md, section 24). Neither "not vulnerable" nor "unknown"
+# has actually appeared in a real captured report yet - every
+# negative/inconclusive script seen so far used a custom "couldn't find"
+# message instead. This is a protective addition grounded in the real
+# framework source, not yet validated against real output the way
+# "couldn't find" and the error marker below were.
 _NMAP_VULN_ERROR_MARKER = "error: script execution failed"
 _NMAP_VULN_NEGATIVE_MARKERS = ("couldn't find", "not vulnerable", "unknown (unable to test)")
 # vulns.lua's own LIKELY_VULN state is explicitly a heuristic, not a

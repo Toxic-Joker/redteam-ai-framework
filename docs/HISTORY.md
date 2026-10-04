@@ -984,3 +984,70 @@ in the README next-steps list instead):**
   WAF-fronted target plausibly explains the difference on its own, but it
   hasn't been isolated from the `format=json` change (incident 21) or
   this incident's own fix with a controlled comparison.
+
+## 24. A dispute over a source citation that turned out correct - but the citation was still wrong to write the way it was (2026-10-04)
+
+The citation added in incident 23 ("nmap's own `nselib/vulns.lua`
+STATE_MSG table, confirmed by reading the real source") was disputed: the
+file was claimed to be ~5-10KB, not 76.4KB, and the `STATE_MSG` table was
+claimed to have three states, not six, with `VULNERABLE (DoS)`,
+`VULNERABLE (Exploitable)`, and `UNKNOWN (unable to test)` claimed to be
+per-script conventions rather than real framework constants.
+
+Re-verified from scratch with a raw `curl` of
+`https://raw.githubusercontent.com/nmap/nmap/master/nselib/vulns.lua`
+(not a summarizing fetch tool - the point of the dispute was exactly
+whether a prior summarized fetch could be trusted, so this one used the
+plainest possible method: download the bytes, `wc -l` and `sed -n` them
+directly). Result: 78277 bytes, 2317 lines, confirmed. Lines 386-404,
+verbatim:
+
+```lua
+STATE = {
+  LIKELY_VULN = 0x01,
+  NOT_VULN = 0x02,
+  VULN = 0x04,
+  DoS = 0x08,
+  EXPLOIT = 0x10,
+  UNKNOWN = 0x20,
+}
+
+-- The vulnerability messages.
+STATE_MSG = {
+  [STATE.LIKELY_VULN] = 'LIKELY VULNERABLE',
+  [STATE.NOT_VULN] = 'NOT VULNERABLE',
+  [STATE.VULN] = 'VULNERABLE',
+  [STATE.DoS] = 'VULNERABLE (DoS)',
+  [STATE.EXPLOIT] = 'VULNERABLE (Exploitable)',
+  [STATE.DoS | STATE.VULN] = 'VULNERABLE (DoS)',
+  [STATE.EXPLOIT | STATE.VULN] = 'VULNERABLE (Exploitable)',
+  [STATE.UNKNOWN] = 'UNKNOWN (unable to test)',
+}
+```
+
+The original citation was accurate. The dispute's specific claims (file
+size, state count, which states are framework-level) were themselves
+asserted from memory and did not hold up against the actual file.
+
+**The citation was still wrong to write the way it was.** "Confirmed by
+reading the real source" is a claim, not evidence - a reviewer (human or
+AI) has no way to check it without re-fetching the same file themselves,
+which is exactly what happened here: both sides had to re-verify from
+scratch to settle something a single quoted snippet in the original
+comment would have closed immediately. The fact that the original claim
+turned out correct this time doesn't make the citation style correct;
+the next one might not get re-checked, and would stand uncorrected for
+the same reason this one was disputable in the first place. New rule
+added to `CLAUDE.md`, section 2: a "verified from source" claim quotes
+the exact lines, every time, not just the fact that verification
+happened.
+
+**Also worth naming plainly.** The dispute itself used the same
+pattern it was warning against - "from memory of the actual source,"
+asserted with specific-sounding numbers (three states, ~5-10KB), and
+wrong on both counts. This isn't a reason to dismiss external review -
+the review caught two genuine bugs in the same pass (the dedup fix and
+the section-number mislabeling) and the standing-rule suggestion is
+being adopted. It's a reason to apply the verify-before-trusting
+discipline symmetrically: to a critique of this project's claims exactly
+as much as to the project's own claims about an external tool.

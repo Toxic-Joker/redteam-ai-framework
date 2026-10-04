@@ -186,6 +186,15 @@ discovered in production.
       a real finding (`docs/HISTORY.md`, section 17). Read the tool's real
       argument parser, not just its output format (cf. the dalfox rule
       above).
+- [ ] A comment or commit message claiming "verified from the real
+      source" quotes the exact lines verified, not just the claim -
+      a reviewer (human or AI) must be able to check the citation without
+      re-fetching anything themselves. A bare "confirmed from source X"
+      is indistinguishable from an unverified claim until someone
+      disputes it and both sides have to re-fetch to settle it
+      (`docs/HISTORY.md`, section 24 - a dispute over an nmap source
+      citation that a quoted snippet in the original comment would have
+      pre-empted entirely, even though the citation turned out correct).
 - [ ] Independent tools within the same phase (none reads another's output)
       run concurrently via `asyncio.gather()`, never sequentially by
       default — sequentiality was an unexamined default choice, not a
