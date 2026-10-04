@@ -901,3 +901,86 @@ once a tool's output is parsed correctly in the first place. The
 deterministic core cannot rescue a finding that should never have been
 constructed; reading a generated report end to end, not just running the
 test suite, is what caught this one.
+
+## 23. A second pass on the incident 22 fix found the same gap one level up (2026-10-04)
+
+A live re-run of the fix from incident 22, cross-checked against the
+generated PDF, surfaced two more real issues (plus corrected a sloppy
+claim made about the first fix, see below).
+
+**The fix itself had a gap.** `recon_agent.py`'s negative-result check
+only looked for `"couldn't find"` - a script's own custom negative
+message. nmap's own `nselib/vulns.lua` STATE_MSG table (confirmed by
+reading the real source, not assumed from the one example seen so far -
+same discipline as every tool-parsing rule in this file) defines a fixed,
+finite set of states: `VULNERABLE`, `LIKELY VULNERABLE`, `NOT VULNERABLE`,
+`VULNERABLE (DoS)`, `VULNERABLE (Exploitable)`, `UNKNOWN (unable to
+test)`. Neither `NOT VULNERABLE` nor `UNKNOWN (unable to test)` would
+have been caught - a script using this framework's negative or
+inconclusive state would still have slipped through as a false MEDIUM.
+Fixed by extending the negative-marker check to cover both.
+
+**`LIKELY VULNERABLE` is a heuristic, not a confirmed result** - nmap's
+own naming says so. Reported as a MEDIUM `Finding` exactly like an
+unqualified `VULNERABLE`, this violates the same principle already
+applied to a low-confidence `-O` guess (section 2: "a low-confidence `-O`
+guess must never appear as a fact"). Fixed by routing `LIKELY VULNERABLE`
+results to a `Lead` (confidence 0.5, tag `nmap-vuln-likely`) instead of a
+`Finding`, mirroring the OS-guess pattern exactly rather than inventing a
+new mechanism.
+
+**A dedup gap in the report's "Actions immediates" section.**
+`ReportAgent._fallback_immediate_actions` collected remediation text
+across findings of the highest populated severity with no deduplication -
+several Nikto findings on different ports share the exact same
+remediation sentence, so the same sentence appeared multiple times in a
+list meant to read as distinct action items. Fixed with
+`dict.fromkeys()` (preserves order, standard library, no new dependency).
+
+**A sloppy reconciliation claim, corrected.** Reporting on the live
+re-run, the previous pass claimed the original report's "19 MEDIUM −
+error count − genuine count" reconciled exactly against the re-run's
+numbers. Worked through precisely: the *original* run's 19 MEDIUM findings
+were 6 negative (`"couldn't find"`) + 6 execution failures + 7 genuine -
+not a 6/6/7 split matching the *re-run's* 5 reported errors, because the
+two are separate live scans of a real, Cloudflare-fronted external target
+with different open ports each time (`http-majordomo2-dir-traversal`
+simply didn't fire the same way on the second run). The fix is still
+confirmed correct - 7 genuine MEDIUM findings matched exactly both times -
+but the specific "math reconciles perfectly between the two runs" framing
+overstated what two independent scans of a dynamic target can actually
+guarantee. Caught because the exact count was checked against both PDFs
+item by item rather than taken on the first pass's own word for it.
+
+**Deliberately not fixed, for lack of a clean generalizable signal (filed
+in the README next-steps list instead):**
+- **Generic remediation text** (nmap-vuln: "examine the script result and
+  apply the fix"; nuclei: "consult the template's documentation") is
+  circular, not actionable advice. A real fix needs either a remediation
+  lookup table keyed by script/template ID (nmap's vuln category and
+  nikto both have large but finite catalogs; nuclei's template catalog
+  does not) or routing remediation drafting to the LLM as consultative
+  content (defensible under `PROJECT.md`'s guiding principle - remediation
+  text isn't severity, risk, or report structure) with the current
+  generic text as the deterministic fallback. Either is real content work,
+  not a quick code change.
+- **`http-enum` listing directories at MEDIUM.** Unlike `LIKELY
+  VULNERABLE`, there's no `vulns.lua`-style marker to key off here -
+  `http-enum` is a pure path-enumeration script with no `State:` line at
+  all. Downgrading it would mean hardcoding one script ID as a special
+  case with no generalizable signal behind it - exactly the kind of
+  unguarded one-off this file's rules exist to prevent. Worth a deliberate
+  look at nmap's vuln-category script list as a whole, not a reflexive
+  fix.
+- **Other phases never call `log_error`.** Grepped: only `recon_agent.py`
+  (this incident) and `report_agent.py` (PDF generation failure) do.
+  Whether `enum`/`exploit`/`postexploit` genuinely never fail or simply
+  don't report it yet is unverified - needs checking each agent's
+  tool-call sites, not assumed either way.
+- **Mission duration regression** (20-25 min typical per section 18, this
+  run 37m41s and the prior external-target run 42m32s). Both slow runs
+  are against the same Cloudflare-fronted external domain, not the DVWA
+  lab target the 20-25 min figure was measured against - a live
+  WAF-fronted target plausibly explains the difference on its own, but it
+  hasn't been isolated from the `format=json` change (incident 21) or
+  this incident's own fix with a controlled comparison.

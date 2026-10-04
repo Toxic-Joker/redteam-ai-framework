@@ -147,7 +147,21 @@ discovered in production.
       failed`) must become a logged error, never a `Finding`. Same
       category of mistake as the `sqlmap` rule above, caught much later
       because it was never applied to nmap's own vuln scripts
-      (`docs/HISTORY.md`, section 22).
+      (`docs/HISTORY.md`, section 22). nmap's own `nselib/vulns.lua`
+      STATE_MSG table (verified from the real source) defines the full
+      state set: `VULNERABLE`, `LIKELY VULNERABLE`, `NOT VULNERABLE`,
+      `VULNERABLE (DoS)`, `VULNERABLE (Exploitable)`, `UNKNOWN (unable to
+      test)` — `NOT VULNERABLE`/`UNKNOWN` are negative results like
+      `"couldn't find"`, and `LIKELY VULNERABLE` is a heuristic that must
+      become a `Lead`, never a `Finding` — same principle as a
+      low-confidence `-O` guess above (`docs/HISTORY.md`, section 23).
+- [ ] A deterministic report-building function that collects text across
+      multiple findings (e.g. `ReportAgent._fallback_immediate_actions`)
+      must deduplicate before truncating to a display limit — several
+      findings commonly share identical remediation text (every Nikto
+      finding on a different port says the same sentence), and an
+      un-deduped list reads as more distinct recommendations than there
+      actually are (`docs/HISTORY.md`, section 23).
 - [ ] Start a mission with `asyncio.create_task` (handle kept to allow
       cancellation), never FastAPI's `BackgroundTasks`, which gives no way
       to interrupt a running mission.
