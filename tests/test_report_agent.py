@@ -47,6 +47,19 @@ def test_fallback_immediate_actions_empty_when_nothing_has_remediation():
     assert ReportAgent._fallback_immediate_actions(findings) == []
 
 
+def test_fallback_immediate_actions_deduplicates_identical_remediation_text():
+    # Several Nikto findings on different ports commonly share the exact
+    # same remediation sentence - must not appear as separate "distinct"
+    # actions (docs/HISTORY.md, section 23).
+    findings = [
+        Finding("a", Severity.MEDIUM, "", "p80", "e", "enum", remediation="examiner nikto"),
+        Finding("b", Severity.MEDIUM, "", "p8080", "e", "enum", remediation="examiner nikto"),
+        Finding("c", Severity.MEDIUM, "", "p443", "e", "enum", remediation="fix cve"),
+    ]
+    actions = ReportAgent._fallback_immediate_actions(findings)
+    assert actions == ["examiner nikto", "fix cve"]
+
+
 def test_fallback_executive_summary_mentions_host_and_risk():
     mission = MissionState(
         mission_id="m1", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")

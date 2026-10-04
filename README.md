@@ -193,6 +193,22 @@ order:
    built: deciding where to instrument (per-agent, per-tool, or both) is a
    design call worth making deliberately, not guessed at under time
    pressure (`docs/HISTORY.md`, section 21).
+8. **Generic, non-actionable remediation text** on nmap-vuln and nuclei
+   findings ("examine the script's result and apply the fix," "consult
+   the template's documentation") — real advice would need a remediation
+   lookup table keyed by script/template ID, or routing remediation
+   drafting to the LLM as consultative content with the current text as
+   the deterministic fallback (`docs/HISTORY.md`, section 23).
+9. **`http-enum`'s MEDIUM severity** deserves a second look — unlike
+   `LIKELY VULNERABLE` (now a `Lead`, see section 23), there's no
+   generalizable nmap-side marker distinguishing a plain directory listing
+   from a real finding, so fixing it means hardcoding one script ID,
+   deliberately not done without first reviewing nmap's vuln-category
+   script list as a whole.
+10. **`log_error` is only called from `recon_agent.py` and
+    `report_agent.py`.** Whether `enum`/`exploit`/`postexploit` genuinely
+    never fail or just don't report it yet is unverified
+    (`docs/HISTORY.md`, section 23).
 
 Every fix already applied (and its exact root cause) is documented
 chronologically in `docs/HISTORY.md` — read it before questioning a

@@ -151,7 +151,7 @@ async def test_nmap_vuln_script_execution_failure_becomes_an_error_not_a_finding
 async def test_nmap_vuln_script_genuine_positive_result_becomes_a_finding(monkeypatch):
     monkeypatch.setattr(recon_agent_module, "_dns_recon", lambda host: [])
     vuln = _vuln_result_with_script(
-        "http-slowloris-check", "VULNERABLE:\n  Slowloris DOS attack\n  State: LIKELY VULNERABLE"
+        "http-vuln-cve2010-0738", "/jmx-console/: Authentication was not required\nState: VULNERABLE"
     )
     agent = _make_recon_agent({"discovery": _empty_nmap_result(), "ports": _empty_nmap_result(), "vuln": vuln})
     mission = MissionState(
@@ -161,7 +161,60 @@ async def test_nmap_vuln_script_genuine_positive_result_becomes_a_finding(monkey
     result = await agent.run(mission)
 
     assert len(result.findings) == 1
-    assert "http-slowloris-check" in result.findings[0].title
+    assert "http-vuln-cve2010-0738" in result.findings[0].title
+
+
+@pytest.mark.asyncio
+async def test_nmap_vuln_script_not_vulnerable_state_is_not_a_finding(monkeypatch):
+    # nmap's own nselib/vulns.lua STATE_MSG table defines NOT VULNERABLE
+    # as a negative result, distinct from a script's own custom "couldn't
+    # find" message (docs/HISTORY.md, section 23).
+    monkeypatch.setattr(recon_agent_module, "_dns_recon", lambda host: [])
+    vuln = _vuln_result_with_script("http-vuln-example", "State: NOT VULNERABLE")
+    agent = _make_recon_agent({"discovery": _empty_nmap_result(), "ports": _empty_nmap_result(), "vuln": vuln})
+    mission = MissionState(
+        mission_id="m7", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+
+    result = await agent.run(mission)
+
+    assert result.findings == []
+
+
+@pytest.mark.asyncio
+async def test_nmap_vuln_script_unknown_state_is_not_a_finding(monkeypatch):
+    monkeypatch.setattr(recon_agent_module, "_dns_recon", lambda host: [])
+    vuln = _vuln_result_with_script("http-vuln-example", "State: UNKNOWN (unable to test)")
+    agent = _make_recon_agent({"discovery": _empty_nmap_result(), "ports": _empty_nmap_result(), "vuln": vuln})
+    mission = MissionState(
+        mission_id="m8", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+
+    result = await agent.run(mission)
+
+    assert result.findings == []
+
+
+@pytest.mark.asyncio
+async def test_nmap_vuln_script_likely_vulnerable_becomes_a_lead_not_a_finding(monkeypatch):
+    # LIKELY VULNERABLE is nmap's own heuristic/unconfirmed state - must
+    # never appear as a fact in the report, same principle already
+    # applied to a low-confidence -O guess (docs/HISTORY.md, section 23).
+    monkeypatch.setattr(recon_agent_module, "_dns_recon", lambda host: [])
+    vuln = _vuln_result_with_script(
+        "http-slowloris-check", "VULNERABLE:\n  Slowloris DOS attack\n  State: LIKELY VULNERABLE"
+    )
+    agent = _make_recon_agent({"discovery": _empty_nmap_result(), "ports": _empty_nmap_result(), "vuln": vuln})
+    mission = MissionState(
+        mission_id="m9", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+
+    result = await agent.run(mission)
+
+    assert result.findings == []
+    likely_leads = [lead for lead in result.leads if "nmap-vuln-likely" in lead.tags]
+    assert len(likely_leads) == 1
+    assert "http-slowloris-check" in likely_leads[0].title
 
 
 class _StubEnumTool:

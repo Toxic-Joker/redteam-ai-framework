@@ -116,11 +116,15 @@ class ReportAgent(BaseAgent):
     @staticmethod
     def _fallback_immediate_actions(findings: list[Finding]) -> list[str]:
         # Deterministic fallback: the recommendations for the highest
-        # confirmed severity present, never an LLM opinion.
+        # confirmed severity present, never an LLM opinion. Several
+        # findings commonly share identical remediation text (e.g. every
+        # Nikto finding on a different port) - deduplicated here (order
+        # preserved) rather than padding "actions immediates" with
+        # repeats of the same sentence (docs/HISTORY.md, section 23).
         for severity in (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW):
             texts = [f.remediation for f in findings if f.severity == severity and f.remediation]
             if texts:
-                return texts[:5]
+                return list(dict.fromkeys(texts))[:5]
         return []
 
     @staticmethod

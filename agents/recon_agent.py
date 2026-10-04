@@ -24,11 +24,21 @@ from .base_agent import BaseAgent
 # print a conclusion line even in the negative case, unlike most NSE
 # scripts which stay silent when nothing is found - so a script simply
 # appearing in the output is not itself a positive signal (docs/HISTORY.md,
-# section 22). These two markers were observed verbatim in real output and
-# cover the two negative shapes seen so far: an explicit negative result
-# stated by the script itself, and the script failing to run at all.
-_NMAP_VULN_NEGATIVE_MARKER = "couldn't find"
+# section 22). "couldn't find" covers scripts with their own custom
+# negative message; "not vulnerable" and "unknown (unable to test)" are
+# the other two negative/inconclusive states nmap's own nselib/vulns.lua
+# STATE_MSG table defines (confirmed by reading the real source, not
+# assumed from one example - the same discipline as the dalfox/nikto
+# rules) alongside VULNERABLE, VULNERABLE (DoS) and VULNERABLE
+# (Exploitable), which do stay Findings (docs/HISTORY.md, section 23).
 _NMAP_VULN_ERROR_MARKER = "error: script execution failed"
+_NMAP_VULN_NEGATIVE_MARKERS = ("couldn't find", "not vulnerable", "unknown (unable to test)")
+# vulns.lua's own LIKELY_VULN state is explicitly a heuristic, not a
+# confirmed result - never a fact in a report, same principle already
+# applied to a low-confidence nmap -O guess above (docs/HISTORY.md,
+# section 23). Checked before the generic Finding path, not after:
+# "VULNERABLE" is itself a substring of "LIKELY VULNERABLE".
+_NMAP_VULN_LIKELY_MARKER = "likely vulnerable"
 
 # A -O guess below this confidence threshold must never appear as a fact
 # in the report (see CLAUDE.md, section 2 and docs/HISTORY.md, section 3:
@@ -141,7 +151,21 @@ class ReconAgent(BaseAgent):
                         "(pas une constatation, pas de preuve collectee).",
                     )
                     continue
-                if _NMAP_VULN_NEGATIVE_MARKER in output_lower:
+                if any(marker in output_lower for marker in _NMAP_VULN_NEGATIVE_MARKERS):
+                    continue
+                if _NMAP_VULN_LIKELY_MARKER in output_lower:
+                    state.add_lead(
+                        Lead(
+                            title=f"Script nmap {script['id']} possiblement positif sur le port {port['port']}",
+                            rationale=(
+                                f"nmap rapporte un etat LIKELY VULNERABLE (heuristique, non confirme) "
+                                f"pour {script['id']} : {output[:300]}"
+                            ),
+                            source=self.name,
+                            confidence=0.5,
+                            tags=["nmap-vuln-likely"],
+                        )
+                    )
                     continue
                 state.add_finding(
                     Finding(
