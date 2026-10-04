@@ -1125,3 +1125,62 @@ environment:** confirm `http-slowloris-check` on port 8080 now lands in
 the same `gta-it.com` scan), and compare mission duration against a DVWA
 baseline to separate target-side WAF latency from a possible regression
 introduced by `format="json"` (incident 21) or this incident's own fix.
+
+## 26. Three overclaims in one live-run analysis, and why gta-it.com is the wrong test bed for this fix (2026-10-04)
+
+A third live run against `gta-it.com` (mission `TEST-LAB-GTA`, 27m52s,
+MEDIUM dropped from 7 to 6) was read as supporting evidence for several
+things it didn't actually establish. Caught on review, each verified
+before correcting:
+
+- **"Duration dropping is evidence against a `format=json` regression"
+  was confounded, not supported.** Run 2's report had 7 open ports
+  (`80, 443, 2052, 2096, 8080, 8443, 8880`); this run had 5
+  (`80, 443, 2052, 2095, 8080`) - roughly 29% fewer, meaning roughly 29%
+  fewer nmap NSE invocations, Nikto passes, and nuclei templates per
+  port across every phase. Fewer open ports is less work, not faster
+  responses to the same work - a mechanical explanation for most or all
+  of the duration drop that doesn't require any target-latency or
+  `format=json` hypothesis at all. The three `gta-it.com` runs differ in
+  port count every time (Cloudflare edge rotation), which is exactly the
+  variable that would need to be held fixed to isolate `format=json`'s
+  effect. The conclusion drawn ("points toward target-side latency, not
+  format=json") may still be true, but this data doesn't establish it -
+  conceded, not defended.
+- **The allowlist refactor itself (incident 25's actual deliverable) has
+  never been exercised on a live run.** Both nmap-vuln MEDIUM findings in
+  this run - `http-vuln-cve2010-0738` and `http-enum` - have no `State:`
+  line in their real evidence, so both go through the retained blocklist
+  fallback path, not the new `"state:"` / `"state: vulnerable"` /
+  `LIKELY_VULN`-to-`Lead` code added in incident 25. That code has only
+  ever run against fixtures written for this project's own test suite -
+  and the fabricated `"State: VULNERABLE"` fixture caught in incident 25
+  was caught *because* someone compared a fixture to real evidence. A
+  fixture no one has compared against real output yet is exactly as
+  unverified as that one was before it got caught.
+- **"Generalizes to a script never seen before" overstated a trivial
+  property.** `http-aspnet-debug` matching `"error: script execution
+  failed"` is a generic string matching a generic string - it confirms
+  the error marker was never a per-script enumeration (true, but it also
+  never was), not that the fix handles a genuinely different failure
+  shape (a timeout, an NSE init failure, a script killed by a signal)
+  that wouldn't contain that literal phrase.
+
+**Why `gta-it.com` can't close this on its own.** It's a live,
+Cloudflare-fronted, rate-limited external target whose open port set and
+which NSE scripts actually fire both vary between runs. Three incidents
+(22, 23, 25) have all been nmap-vuln classification fixes, and the live
+validation of each has taken multiple runs and still left the allowlist
+path (the part that actually matters most) unexercised. DVWA is already
+set up, already deterministic (no WAF, no port rotation), and plausibly
+triggers `http-slowloris-check`'s heuristic `State: LIKELY VULNERABLE`
+reliably on a default Apache config with no slowloris mitigation - worth
+trying there directly (even a bare `nmap --script=vuln` against it,
+outside the framework, to see which scripts produce a `State:` line at
+all) instead of spending another `gta-it.com` run hoping the right
+script fires.
+
+**On the `log_error`/logging check from incident 25:** the new WARNING
+only exists in code pulled at or after `e37ed02`. A run against a
+container that wasn't rebuilt since then will show nothing, and that
+absence means "redeploy and re-run," not "the LLM is fine this time."
