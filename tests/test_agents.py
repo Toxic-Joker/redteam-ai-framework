@@ -149,10 +149,11 @@ async def test_nmap_vuln_script_execution_failure_becomes_an_error_not_a_finding
 
 @pytest.mark.asyncio
 async def test_nmap_vuln_script_genuine_positive_result_becomes_a_finding(monkeypatch):
+    # Real captured evidence (docs/HISTORY.md, section 22): this script
+    # has no "State:" line at all - it isn't a vulns.lua script - so it
+    # goes through the no-State fallback path, not the allowlist.
     monkeypatch.setattr(recon_agent_module, "_dns_recon", lambda host: [])
-    vuln = _vuln_result_with_script(
-        "http-vuln-cve2010-0738", "/jmx-console/: Authentication was not required\nState: VULNERABLE"
-    )
+    vuln = _vuln_result_with_script("http-vuln-cve2010-0738", "/jmx-console/: Authentication was not required")
     agent = _make_recon_agent({"discovery": _empty_nmap_result(), "ports": _empty_nmap_result(), "vuln": vuln})
     mission = MissionState(
         mission_id="m6", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
@@ -162,6 +163,28 @@ async def test_nmap_vuln_script_genuine_positive_result_becomes_a_finding(monkey
 
     assert len(result.findings) == 1
     assert "http-vuln-cve2010-0738" in result.findings[0].title
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "state_line",
+    ["State: VULNERABLE", "State: VULNERABLE (DoS)", "State: VULNERABLE (Exploitable)"],
+)
+async def test_nmap_vuln_script_vulns_lua_positive_state_becomes_a_finding(monkeypatch, state_line):
+    # Allowlist path (docs/HISTORY.md, section 25): a vulns.lua script's
+    # own "State:" line is ground truth. All three real positive states
+    # share the "State: VULNERABLE" prefix.
+    monkeypatch.setattr(recon_agent_module, "_dns_recon", lambda host: [])
+    vuln = _vuln_result_with_script("http-vuln-example", f"Some description.\n{state_line}")
+    agent = _make_recon_agent({"discovery": _empty_nmap_result(), "ports": _empty_nmap_result(), "vuln": vuln})
+    mission = MissionState(
+        mission_id="m6b", mission_name="t", operator="op", authorization_ref="A", target=Target(host="10.0.0.1")
+    )
+
+    result = await agent.run(mission)
+
+    assert len(result.findings) == 1
+    assert "http-vuln-example" in result.findings[0].title
 
 
 @pytest.mark.asyncio
@@ -200,6 +223,8 @@ async def test_nmap_vuln_script_likely_vulnerable_becomes_a_lead_not_a_finding(m
     # LIKELY VULNERABLE is nmap's own heuristic/unconfirmed state - must
     # never appear as a fact in the report, same principle already
     # applied to a low-confidence -O guess (docs/HISTORY.md, section 23).
+    # Real captured evidence from http-slowloris-check (docs/HISTORY.md,
+    # section 22).
     monkeypatch.setattr(recon_agent_module, "_dns_recon", lambda host: [])
     vuln = _vuln_result_with_script(
         "http-slowloris-check", "VULNERABLE:\n  Slowloris DOS attack\n  State: LIKELY VULNERABLE"

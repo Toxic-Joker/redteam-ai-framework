@@ -4,8 +4,46 @@ a mission never stops over a malformed LLM reply (CLAUDE.md section 11).
 These tests cover the real imperfections of a small local model, not just
 the perfectly well-formed JSON case.
 """
+import logging
+from types import SimpleNamespace
+
+import pytest
+
 from agents.base_agent import BaseAgent
 from agents.recon_agent import ReconAgent
+
+
+def _make_bare_agent(llm_content: str):
+    agent = ReconAgent.__new__(ReconAgent)  # bypass __init__: no real LLM connection
+    agent.name = "test"
+
+    class _StubLLM:
+        async def ainvoke(self, messages):
+            return SimpleNamespace(content=llm_content)
+
+    agent._llm = _StubLLM()
+    return agent
+
+
+@pytest.mark.asyncio
+async def test_ask_llm_logs_a_warning_when_reply_has_no_usable_json(caplog):
+    # Before this, nothing captured the raw LLM reply anywhere - "why did
+    # the LLM contribute nothing to this report" was unanswerable from
+    # logs (docs/HISTORY.md, section 25).
+    agent = _make_bare_agent("")
+    with caplog.at_level(logging.WARNING):
+        result = await agent.ask_llm("system", "user")
+    assert result == {}
+    assert any("no usable JSON" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_ask_llm_does_not_warn_on_a_valid_reply(caplog):
+    agent = _make_bare_agent('{"summary": "ok"}')
+    with caplog.at_level(logging.WARNING):
+        result = await agent.ask_llm("system", "user")
+    assert result == {"summary": "ok"}
+    assert not any("no usable JSON" in record.message for record in caplog.records)
 
 
 def test_llm_is_constrained_to_json_output():

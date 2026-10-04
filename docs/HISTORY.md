@@ -1051,3 +1051,77 @@ the section-number mislabeling) and the standing-rule suggestion is
 being adopted. It's a reason to apply the verify-before-trusting
 discipline symmetrically: to a critique of this project's claims exactly
 as much as to the project's own claims about an external tool.
+
+## 25. From a blocklist to an allowlist for vulns.lua scripts, and a missing diagnostic (2026-10-04)
+
+A follow-up review correctly named the pattern across incidents 22-24:
+each one fixed the previous negative phrasing the nmap-vuln filter
+hadn't seen yet (`"couldn't find"`, then `"not vulnerable"` and
+`"unknown (unable to test)"`) - a blocklist, which only ever closes the
+specific gap just discovered. CLAUDE.md's sqlmap rule already names the
+better approach ("a single unambiguous positive signal, checked line by
+line") but it had only been applied to sqlmap, not to nmap's own vuln
+scripts.
+
+**Refactored to an allowlist for the subset this is actually possible
+for.** `nselib/vulns.lua` always prints a `State: <value>` conclusion
+line (confirmed from the real source, section 24: line 1834,
+`string_format("  State: %s", STATE_MSG[vuln_table.state])`). For any
+script using this framework, that line is ground truth: `"state:
+vulnerable"` as a substring deliberately matches `VULNERABLE`,
+`VULNERABLE (DoS)` and `VULNERABLE (Exploitable)` (all three start with
+`"State: VULNERABLE"`) while excluding `LIKELY VULNERABLE` and `NOT
+VULNERABLE` (a different word immediately follows `"State: "` in both).
+`recon_agent.py` now checks for a `"state:"` line first; if present, the
+State line alone decides Finding / Lead / nothing, and no negative
+phrasing needs to be enumerated for this category ever again.
+
+**This does not solve the whole problem, and the code says so.** Scripts
+with no `"State:"` line at all - `http-enum`'s plain directory listing,
+`http-vuln-cve2010-0738`'s bare `"/jmx-console/: Authentication was not
+required"` - don't use vulns.lua and have no shared convention across
+them, any more than gobuster/ffuf/nuclei/dalfox share one archive layout
+(section 2). For this remaining category, `"couldn't find"` stays as the
+one negative phrasing actually observed in real output - still the
+blocklist pattern, kept for lack of a better generalizable alternative,
+and the code comment says exactly that rather than implying the
+allowlist refactor was a complete fix. A real fix for this category (an
+`http-enum`-specific severity rule, or enumerating nmap's vuln-category
+script list to find other shared conventions) is filed, not guessed at
+here.
+
+**A caught mistake while writing the fix: a fabricated test fixture.**
+The regression test for `http-vuln-cve2010-0738` (written in incident 22)
+had `"State: VULNERABLE"` appended to the real captured evidence -
+`"/jmx-console/: Authentication was not required"` never had a `State:`
+line in either real report. Caught while building the allowlist (the
+fixture would have silently exercised the wrong code path once the
+allowlist shipped), fixed to match the real captured evidence exactly,
+and a parametrized test added for the three real `VULNERABLE` variants
+instead.
+
+**A real gap closed: the LLM's raw reply was never logged anywhere.**
+One run's executive summary read "le modele local n'a pas produit de
+texte exploitable" with no way to find out why - `ask_llm`
+(`agents/base_agent.py`) caught exceptions into `{"_llm_error": ...}`
+but never logged the raw response content on the success path. A grep
+across `agents/`, `core/`, and `tools/` found no logging calls there at
+all: `loguru==0.7.2` is pinned in `requirements.txt` but never actually
+imported anywhere outside the v0/v1 reference snapshots - only `main.py`
+uses stdlib `logging`, for two startup warnings. Added a `logging`
+logger to `base_agent.py`: the raw reply is now logged at DEBUG
+(`LOG_LEVEL=DEBUG` to see it), and a WARNING fires whenever `_extract_json`
+returns `{}` - visible at the default `INFO` level without needing to
+turn anything up. This doesn't diagnose the specific run that prompted
+it (nothing was captured for that one - the gap predates this fix), but
+the next occurrence is now answerable from logs instead of requiring a
+guess between "LLM failed to produce parseable output," "LLM produced
+output the agent discarded," and "`format=json` broke this call shape."
+
+**Left for a live re-run against the real target, which needs the
+operator's own deployment (Ollama + Docker), not available from this
+environment:** confirm `http-slowloris-check` on port 8080 now lands in
+"Pistes à vérifier" instead of MEDIUM (MEDIUM should drop from 7 to 6 on
+the same `gta-it.com` scan), and compare mission duration against a DVWA
+baseline to separate target-side WAF latency from a possible regression
+introduced by `format="json"` (incident 21) or this incident's own fix.
