@@ -397,6 +397,11 @@ def test_commix_build_command_uses_sqlmap_style_flags(monkeypatch):
     assert "--cookie" in args and "PHPSESSID=abc" in args
     assert "--data" in args and "a=1" in args
     assert "--batch" in args
+    # Unlike sqlmap (already /tmp/sqlmap-output), commix's own default
+    # output dir is relative (".output/") and resolves against the
+    # framework process's cwd (/app) - not writable by a non-root
+    # container user (docs/HISTORY.md, section 27).
+    assert "--output-dir" in args and "/tmp/commix-output" in args
 
 
 def test_commix_does_not_flag_negative_result_as_vulnerable():

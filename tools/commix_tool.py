@@ -9,6 +9,14 @@ writing, not assumed by analogy:
   never "is vulnerable" - the same pitfall as the sqlmap fix
   (docs/HISTORY.md section 6) avoided from the start: never combine
   independent keywords present anywhere in the output.
+- --output-dir: confirmed present (src/core/parse/cmdline.py) with the
+  same flag name as sqlmap's. Unlike sqlmap (which already hardcodes
+  /tmp/sqlmap-output), commix's own default (src/utils/settings.py:
+  OUTPUT_DIR = ".output/") is relative - it resolves against the
+  framework process's cwd (/app, since asyncio.create_subprocess_exec
+  never sets cwd=), which a non-root container user can't write to.
+  Set explicitly for the same reason sqlmap already does
+  (docs/HISTORY.md, section 27).
 """
 from __future__ import annotations
 
@@ -32,6 +40,7 @@ class CommixTool(BaseTool):
             args += ["--cookie", cookie]
         if batch:
             args.append("--batch")
+        args += ["--output-dir", "/tmp/commix-output"]
         return args
 
     def is_success(self, returncode: int) -> bool:

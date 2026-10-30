@@ -742,7 +742,8 @@ function dashboard() {
     connectWs() {
       try {
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        this.ws = new WebSocket(`${proto}//${location.host}/ws/missions`);
+        const wsKey = this.apiKey ? ('?api_key=' + encodeURIComponent(this.apiKey)) : '';
+        this.ws = new WebSocket(`${proto}//${location.host}/ws/missions${wsKey}`);
         this.ws.onopen = () => { this.wsConnected = true; };
         this.ws.onclose = () => {
           this.wsConnected = false;

@@ -113,8 +113,12 @@ discovered in production.
 - [ ] A single source of truth for the model name: one environment
       variable, read in one place (`core/config.py`), propagated
       everywhere.
-- [ ] No `torch` or `sentence-transformers` in the Python dependencies:
-      embeddings via the Ollama endpoint (section 8).
+- [ ] No `torch` or `sentence-transformers` in the Python dependencies.
+      **Updated**: the `ChromaDB`/Ollama-embeddings semantic memory this
+      rule originally existed to support (section 8) was built but never
+      wired into any agent - removed entirely rather than kept as unused
+      weight, closing the rule itself along with it (`docs/HISTORY.md`,
+      section 27).
 - [ ] gobuster's wordlist resolved with an existence check
       (`os.path.exists`) and a fallback to a known path.
 - [ ] Severity capping applies through a single structural point
@@ -234,6 +238,50 @@ discovered in production.
       them, and treat an unverifiable citation (a named project, paper, or
       suspiciously precise statistic) as unverified, not as evidence
       (`docs/HISTORY.md`, section 21).
+- [ ] `app.mount()` (a static files mount, or anything else not added via
+      `app.include_router()`) does not inherit a router's
+      `dependencies=_api_auth` - FastAPI's dependency injection only
+      applies to routes it owns. The same applies to a websocket route: it
+      can't take the router-level `dependencies=` list a REST router does,
+      so its own handler must check `require_api_key`'s logic manually at
+      the top, same key (`X-API-Key` header or `?api_key=` - a browser's
+      native `WebSocket` API can't set a custom header). Before adding any
+      new `app.mount()` or `@router.websocket()`, confirm it's actually
+      covered by the same auth every `/api/*` REST route gets, rather than
+      assuming the app-level auth setup reaches everything
+      (`docs/HISTORY.md`, section 27).
+- [ ] A tool invoked via `asyncio.create_subprocess_exec` is safe from
+      shell injection (no shell involved), but not from argument injection
+      (CWE-88): a user-controlled value placed as a bare argument with no
+      preceding flag (`tools/nmap_tool.py`'s trailing `target`,
+      `tools/dalfox_tool.py`'s positional `url` after `scan`) is parsed by
+      the *target binary* as a CLI flag if it starts with `-`, not as a
+      value - a root-running `nmap` given `target_host = "-oN/path"`
+      writes to that path instead of scanning. A value immediately
+      preceded by an explicit flag (`-u target`, `-h target`) is safer,
+      since most argument parsers treat the very next token as that flag's
+      required value regardless of a leading `-`, but a bare trailing or
+      positional placement is not. Checked once via
+      `core/state.py::is_safe_target_argument`, called from a Pydantic
+      validator on `MissionCreateRequest.target_host` at the API boundary,
+      not patched per-tool (`docs/HISTORY.md`, section 27).
+- [ ] Every compose file that defines the `framework` service's
+      `environment:` list must be kept in sync with every other one -
+      Compose never forwards a host `.env` value into a container unless
+      it's explicitly listed (or `env_file:` is used instead), so a var
+      present in one file and silently missing from another means an
+      operator who sets it believes it's applied when it isn't. Diff the
+      lists against each other before adding a new compose file, don't
+      assume they match (`docs/HISTORY.md`, section 27, found this way
+      for `API_KEY` in `docker-compose.host-ollama.yml`).
+- [ ] A new `.sh` file needs a `.gitattributes` entry (`*.sh text
+      eol=lf`) before its first commit, not after - `core.autocrlf=true`
+      silently converts it to CRLF on the next checkout, which breaks a
+      `/bin/sh` shebang inside a Linux container in a way that only
+      surfaces at `docker build`/`docker run` time, far from the commit
+      that caused it. Confirm the attribute actually took with `git
+      check-attr text eol -- <file>` before trusting it, not just adding
+      the line (`docs/HISTORY.md`, section 27).
 
 ---
 
@@ -317,13 +365,11 @@ machine (`host-ollama` profile, section 8).
                     | nuclei, dalfox, commix)
                     v
               MissionState (SQLite)
-              + semantic memory (ChromaDB, embeddings via Ollama)
                     |
                     v
           +-------------------+       +--------------+
           |  Ollama container  |<----->| qwen3.5:9b    |
-          |  (consultative LLM |       | + embedding   |
-          |   + embeddings)    |       |  model        |
+          |  (consultative LLM) |       |              |
           +-------------------+       +--------------+
 ```
 
@@ -332,7 +378,7 @@ integrated from the design stage):
 
 - **`core/`**: `state.py` (MissionState, Finding, Lead, enums, deterministic
   functions), `orchestrator.py` (LangGraph graph, anti-loop guardrails from
-  the start), `memory.py` (SQLite + ChromaDB), `config.py` (Pydantic
+  the start), `memory.py` (SQLite), `config.py` (Pydantic
   Settings, a single source of truth per variable).
 - **`agents/`**: `base_agent.py`, `recon_agent.py`, `enum_agent.py`,
   `exploit_agent.py`, `postexploit_agent.py`, `report_agent.py`. Every agent
@@ -538,18 +584,12 @@ Contract for `nmap_tool.py`:
   (`|| true`: catches up on first real run).
 - Wordlist: SecLists `common.txt` downloaded into the image.
 - `requirements.txt`: FastAPI, LangGraph, langchain-ollama,
-  SQLAlchemy+aiosqlite, ChromaDB (without `sentence-transformers`/`torch`),
-  Jinja2, WeasyPrint, python-nmap, dnspython, httpx, `beautifulsoup4`
-  (`html.parser` backend, no `lxml`), websockets, loguru.
-
-### Embeddings without torch
-
-ChromaDB accepts a custom embedding function: call the Ollama container's
-`/api/embeddings` endpoint (a dedicated lightweight model, e.g.
-`nomic-embed-text`, about 0.27 GB, or `all-minilm`, about 0.05 GB, for an
-even tighter budget) instead of loading `sentence-transformers` into the
-Python image. This one change removes several GB and several minutes of
-build time compared to v1.
+  SQLAlchemy+aiosqlite, Jinja2, WeasyPrint, python-nmap, dnspython, httpx,
+  `beautifulsoup4` (`html.parser` backend, no `lxml`), websockets, loguru.
+  No `torch`/`sentence-transformers` (never needed - see section 2) and no
+  `chromadb` (the semantic-memory feature it supported was built but never
+  wired into any agent, removed entirely in the security/quality audit
+  rather than kept as unused weight - `docs/HISTORY.md`, section 27).
 
 ### `docker-compose.yml` (services)
 
@@ -562,7 +602,7 @@ services:
   ollama-pull:
     image: ollama/ollama:latest
     depends_on: [ollama]
-    # automatic pull of OLLAMA_MODEL_MAIN and the embedding model on first startup
+    # automatic pull of OLLAMA_MODEL_MAIN on first startup
     restart: "no"
 
   framework:
@@ -571,7 +611,6 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_MODEL_MAIN=${OLLAMA_MODEL_MAIN:-qwen3.5:9b}
-      - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
     ports: ["8000:8000"]
     volumes: [./reports:/app/reports, ./db:/app/db]
 
@@ -594,7 +633,6 @@ keep the default case simple):
 | `framework` image (no torch, includes `nuclei` templates) | 1.2 to 1.6 GB (to confirm on first build - `nuclei` templates add a non-negligible size not measured in this environment) |
 | `ollama` image (CPU, no CUDA) | 1.5 to 2 GB |
 | `qwen3.5:9b` (default) | ~5 to 6 GB |
-| Embedding model (`nomic-embed-text`) | 0.27 GB |
 | Wordlist + misc | < 0.1 GB |
 | **Total, default configuration** | **~8 to 9.5 GB** |
 | With `qwen3:8b` fallback instead of `qwen3.5:9b` | ~8 to 9 GB, comparable |
@@ -617,7 +655,6 @@ imply the default model fits comfortably in RAM on every machine.
 |---|---|---|
 | `OLLAMA_BASE_URL` | `http://ollama:11434` | Endpoint for the LLM. The only place the URL is defined. |
 | `OLLAMA_MODEL_MAIN` | `qwen3.5:9b` | Model used by every agent. On a machine with ~8 GB of RAM, switch to `qwen3.5:4b`; compatibility fallback: `qwen3:8b`. No code change in any case. See section 3 for the choice based on available RAM. |
-| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model for ChromaDB. |
 | `REQUIRE_AUTHORIZATION` | `true` | Blocks any mission without `authorization_ref`. Only checks that a non-empty string is supplied - a note for traceability, not a technical control (see `API_KEY` for the API's actual protection). |
 | `API_KEY` | (empty) | Shared key protecting every `/api/*` route (`X-API-Key` header, or `?api_key=` as a fallback for the report's direct download link). Empty by default = API open to anyone reaching the port - set before any exposure beyond the operator's machine (`docker-compose.yml` publishes on `0.0.0.0` by default). See `docs/HISTORY.md`, section 20. |
 | `ALLOWED_TARGET_RANGES` | (empty) | Comma-separated CIDRs. Empty = no restriction (default, consistent with supporting external targets). Optional guardrail via `core/state.py::is_target_in_allowed_ranges`. |
@@ -677,8 +714,11 @@ imply the default model fits comfortably in RAM on every machine.
   chat template/tool calling worked, but available RAM turned out to be the
   real constraint rather than compatibility; switched to `qwen3.5:4b` on
   this machine profile. Detail in `docs/HISTORY.md`, section 6.
-- Choose the final embedding model (`nomic-embed-text` for quality,
-  `all-minilm` for minimal weight).
+- ~~Choose the final embedding model (`nomic-embed-text` for quality,
+  `all-minilm` for minimal weight).~~ **Settled differently**: the
+  semantic memory this decision was for was never wired into any agent -
+  removed entirely rather than chosen for. See `docs/HISTORY.md`,
+  section 27.
 - Decide whether the section 11 tests should run in CI (GitHub Actions)
   from the MVP onward or only locally at first. **Settled**: yes, as soon
   as the repo became public — `.github/workflows/tests.yml` runs `pytest`

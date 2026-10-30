@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import os
 from functools import lru_cache
 
@@ -41,7 +42,11 @@ def require_api_key(x_api_key: str = Header(default=""), api_key: str = Query(de
     settings = get_settings()
     if not settings.api_key:
         return
-    if x_api_key == settings.api_key or api_key == settings.api_key:
+    # hmac.compare_digest, not ==: a secret comparison that short-circuits
+    # on the first mismatched byte is a timing side-channel (CWE-208),
+    # same fix already applied to the websocket guardrail
+    # (api/websocket.py, docs/HISTORY.md section 27).
+    if hmac.compare_digest(x_api_key, settings.api_key) or hmac.compare_digest(api_key, settings.api_key):
         return
     raise HTTPException(
         status_code=401, detail="Cle API invalide ou manquante (en-tete X-API-Key ou parametre ?api_key=)"

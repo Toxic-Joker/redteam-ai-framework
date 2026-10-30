@@ -57,6 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         tar \
         unzip \
+        gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # gobuster : binaire de release GitHub multi-arch, nom identique au code
@@ -165,8 +166,21 @@ COPY api ./api
 COPY templates ./templates
 COPY main.py ./main.py
 
-RUN mkdir -p /app/reports /app/db
+# Utilisateur non-root (README, "next steps" #3 ; docs/HISTORY.md section 27).
+# nmap bascule deja automatiquement sur un scan connect (-sT) quand il n'est
+# pas root (tools/nmap_tool.py::is_root(), aucun changement de code requis) -
+# il ne manquait que cette directive. UID/GID fixes (1000) pour que
+# l'operateur puisse aligner la propriete de ./reports et ./db sur l'hote
+# si necessaire.
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid app --create-home --shell /usr/sbin/nologin app \
+    && mkdir -p /app/reports /app/db \
+    && chown -R app:app /app
+
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 8000
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["python", "main.py"]

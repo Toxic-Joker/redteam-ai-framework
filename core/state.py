@@ -321,3 +321,20 @@ def is_target_in_allowed_ranges(host: str, allowed_ranges: list[str]) -> bool:
         except ValueError:
             continue
     return False
+
+
+def is_safe_target_argument(host: str) -> bool:
+    """Always-on guardrail, unlike is_target_in_allowed_ranges above: every
+
+    tool is invoked via asyncio.create_subprocess_exec (never a shell), so
+    classic shell injection (;, |, backticks) isn't possible - but
+    tools/nmap_tool.py and tools/dalfox_tool.py place the target as a bare
+    argument with no preceding flag to mark it as a value. A target
+    starting with "-" is parsed as a CLI flag by the tool itself, not as a
+    hostname (CWE-88 argument injection) - e.g. "-oN/app/pwned" makes a
+    root-running nmap write to an arbitrary path instead of scanning
+    anything. Checked once at the API boundary (MissionCreateRequest) so
+    every tool is covered, not just the two found with this exact shape
+    (docs/HISTORY.md, section 27).
+    """
+    return not host.startswith("-")

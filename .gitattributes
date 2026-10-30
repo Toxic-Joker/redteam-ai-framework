@@ -1,0 +1,7 @@
+# docker-entrypoint.sh is run by /bin/sh inside the Linux container - a CRLF
+# shebang line ("#!/bin/sh\r") fails to parse. core.autocrlf=true is set on
+# at least one machine this repo is developed on (confirmed via
+# `git config --get core.autocrlf`), which would otherwise convert this file
+# to CRLF on every checkout regardless of how it's written on disk now
+# (docs/HISTORY.md, section 27).
+*.sh text eol=lf
