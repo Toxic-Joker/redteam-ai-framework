@@ -1292,3 +1292,77 @@ other API test doesn't support WebSocket upgrades).
   `nomic-embed-text` on first run, since `ollama-pull` no longer does.
   133/133 tests still pass - nothing in the test suite depended on any
   of it.
+
+**Continued with a `fastapi-patterns`/`docker-patterns` reference pass:**
+
+- **`@app.on_event("startup")` replaced with a `lifespan` context
+  manager.** FastAPI's own deprecation warning for this had appeared in
+  every single test run this entire project, unnoticed as noise until
+  `fastapi-patterns` named it as the current standard. Same startup
+  behavior (API_KEY warning, directory creation, store init), just the
+  modern async-context-manager shape. `app.router.lifespan_context(app)`
+  (used throughout the test suite to trigger startup in tests) works
+  identically either way - no test changes needed. Confirmed in the next
+  full run: the warning is gone.
+- **Framework's published port now binds to `127.0.0.1` by default**, in
+  both `docker-compose.yml` and `docker-compose.host-ollama.yml` -
+  `${BIND_HOST:-127.0.0.1}:8000:8000`, same opt-in-to-expose posture
+  `API_KEY` already has, overridable with `BIND_HOST=0.0.0.0` for
+  deliberate LAN access. Matches `docker-patterns`' "expose only what's
+  needed" guidance and the README's own already-filed next-steps item #1
+  about this exact gap.
+- **`docker-compose.host-ollama.yml` was missing `API_KEY` from its
+  `environment:` list entirely**, found by diffing it against the main
+  compose file's list rather than assumed identical. Compose never
+  forwards a host `.env` value into a container unless it's explicitly
+  listed - an operator using this profile who set `API_KEY` in `.env`
+  would find it silently not applied, API wide open despite believing
+  otherwise. Added the missing line, matching the main file exactly.
+  (A broader fix - `env_file: .env` per service instead of manually
+  listing every var in two places - would close this whole class of bug
+  permanently; filed, not done here, since it's a bigger behavioral
+  change to deployment config this session can't validate with real
+  `docker compose up`.)
+- **The container now runs as a non-root user** (README's own
+  already-filed next-steps item #3, now implemented): `Dockerfile`
+  creates a fixed-UID-1000 `app` user; `docker-entrypoint.sh` (new file)
+  starts as root only long enough to `chown` the two bind-mounted
+  directories (`reports/`, `db/` - a bind mount replaces whatever
+  ownership the image set at build time, so this has to happen at
+  container start, not build time), then drops to `app` via `gosu`
+  before `exec`-ing the real process. `tools/nmap_tool.py::is_root()`
+  already made the SYN-scan-needs-root path fall back to a connect scan
+  automatically - confirmed, not just assumed, by re-reading that
+  function - so no code change was needed there. One real gap found by
+  checking rather than assuming the other tools would just work:
+  `commix`'s default output directory (`src/utils/settings.py:
+  OUTPUT_DIR = ".output/"`, confirmed from the real pinned-tag source,
+  same discipline as every other tool-parsing rule in this file) is
+  *relative*, resolving against the framework process's cwd (`/app`),
+  which a non-root user can't write to - unlike `sqlmap`, which already
+  hardcodes `/tmp/sqlmap-output`. Fixed by setting `--output-dir
+  /tmp/commix-output` explicitly, the same pattern. `nikto`'s write
+  behavior was spot-checked (it's already told `-output -`, i.e.
+  stdout) but not exhaustively verified against its full Perl source the
+  way commix's was.
+- **A real, previously-latent repo bug found while writing the
+  entrypoint script**: `git config --get core.autocrlf` is `true` on
+  this machine, and the repo has no `.gitattributes` - every commit this
+  entire session has carried a "LF will be replaced by CRLF" warning for
+  every text file, silently tolerated so far because Python/YAML/
+  Markdown mostly don't care. A `.sh` file run by `/bin/sh` inside the
+  container does care: a CRLF shebang (`#!/bin/sh\r`) fails to parse.
+  `docker-entrypoint.sh` would have been silently corrupted on its very
+  first checkout after this commit, breaking the Docker build in a way
+  that would only surface at `docker build` time, far from this commit.
+  Added `.gitattributes` (`*.sh text eol=lf`) and confirmed with
+  `git check-attr` that it actually takes effect before committing.
+
+**Still needs live validation before merging to `main`** - the one
+thing in this entire audit that genuinely can't be confirmed from this
+environment (no Docker access, confirmed by trying): a real
+`docker compose up --build` plus at least one full mission exercising
+every tool (nmap both scan modes, gobuster, ffuf, nikto, sqlmap, nuclei,
+dalfox, commix) as the new non-root user, checking that `reports/` and
+`db/` end up writable and that nothing silently fails the way `commix`
+almost would have.
