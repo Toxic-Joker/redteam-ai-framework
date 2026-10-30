@@ -11,3 +11,6 @@ db/
 # Local-only reference material (old project version, sample reports, etc.)
 # dropped here for context during a session. Never committed, never pushed.
 reference/
+
+# Local design-tooling artifacts (impeccable critique snapshots). Local only.
+.impeccable/
