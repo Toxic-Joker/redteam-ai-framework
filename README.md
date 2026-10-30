@@ -26,9 +26,8 @@ docker compose up --build
 ```
 
 The dashboard is served on `http://localhost:8000`. On first startup,
-`ollama-pull` automatically downloads `qwen3.5:9b` (~6.6 GB) and the
-embedding model `nomic-embed-text` (~0.27 GB) — this can take several
-minutes depending on your connection.
+`ollama-pull` automatically downloads `qwen3.5:9b` (~6.6 GB) — this can
+take several minutes depending on your connection.
 
 ## Choosing a model based on available RAM
 

@@ -16,7 +16,6 @@ class Settings(BaseSettings):
 
     ollama_base_url: str = "http://ollama:11434"
     ollama_model_main: str = "qwen3.5:9b"
-    ollama_embed_model: str = "nomic-embed-text"
 
     require_authorization: bool = True
 
