@@ -1184,3 +1184,222 @@ script fires.
 only exists in code pulled at or after `e37ed02`. A run against a
 container that wasn't rebuilt since then will show nothing, and that
 absence means "redeploy and re-run," not "the LLM is fine this time."
+
+## 27. A full security/quality audit of the framework's own code, on a separate branch (2026-10-30)
+
+First audit of the application itself (not a tool-parsing bug) since
+section 20's initial API-key/redaction pass - the `ponytail-audit` skill's
+"senior developer who just inherited it" method applied to the whole
+repo, done on `audit/security-and-optimization` rather than directly on
+`main`. Three findings were severe enough to fix immediately; the rest
+are filed.
+
+**Must fix, all three closed in this pass:**
+
+- **The PDF/HTML report had a second, unauthenticated path that bypassed
+  `API_KEY` entirely.** `main.py` mounted `app.mount("/reports_static",
+  StaticFiles(directory=settings.reports_dir), ...)` directly, not
+  through a router - the `dependencies=_api_auth` applied to the three
+  `include_router()` calls right above it never covered a `mount()`.
+  `grep -rn "reports_static"` across every `.py` and `.html` file found
+  only the mount line itself - nothing in the app ever linked to it; the
+  real, authenticated path was already `GET
+  /api/reports/{mission_id}/download`. Deleted the mount outright rather
+  than trying to gate a `StaticFiles` app with FastAPI's dependency
+  system. This exact gap is what section 20 says it closed ("the most
+  consequential gap... no authentication on the API/dashboard") - a
+  second hole in the same wall, just not noticed until a repo-wide audit
+  looked for one.
+- **`/ws/missions` broadcast every mission's `mission_id` and status to
+  anyone who could open the WebSocket, with no auth at all.** Same root
+  cause as the mount: `app.include_router(websocket_router)` in `main.py`
+  has no `dependencies=`, and a websocket route can't take the same
+  `Depends()` list a REST router does. Combined with the first finding,
+  this was a complete chain even when `API_KEY` was set: harvest
+  `mission_id`s from the open socket, then pull the full report
+  unauthenticated. Fixed by checking the key manually inside
+  `missions_ws` itself (`hmac.compare_digest` against `?api_key=` - a
+  browser's native `WebSocket` API can't set a custom header, so this
+  reuses the same query-param fallback the report download link already
+  has), closing with `WS_1008_POLICY_VIOLATION` on a mismatch.
+  `templates/dashboard.html`'s `connectWs()` now appends the stored key
+  the same way `apiFetch()` already does for REST calls - and since
+  `connectWs()` already re-read `this.apiKey` fresh on every reconnect
+  attempt (a pre-existing 3-second retry loop on `onclose`), no new retry
+  logic was needed: entering the key via the existing 401-prompt flow on
+  any REST call is enough for the next scheduled WS reconnect to pick it
+  up.
+- **`target_host` reached `nmap` and `dalfox` as a bare, unvalidated CLI
+  argument - argument injection (CWE-88).** `tools/nmap_tool.py` appends
+  `target` as the last bare element (`base + [scan_flag, *speed,
+  "--script=vuln", "-oX", "-", target]`) and `tools/dalfox_tool.py`
+  appends `url` as a bare positional right after the `scan` subcommand -
+  neither is preceded by a flag that would force the tool's own argument
+  parser to treat it as a value rather than an option. Both tools are
+  invoked via `asyncio.create_subprocess_exec` (never a shell, so no
+  classic shell injection - confirmed, not assumed, by reading every
+  `tools/*_tool.py::build_command`), but that doesn't stop the target
+  string itself from being parsed as a flag by the *target binary*. Since
+  this container runs `nmap` with `-sS` (root) by default, a
+  `target_host` like `-oN/app/pwned` would make a root-owned process
+  write to an arbitrary path instead of scanning anything. The other six
+  tools (`gobuster`, `ffuf`, `nikto`, `sqlmap`, `commix`, `nuclei`) all
+  place the target immediately after an explicit `-u`/`-h` flag, which
+  most argument parsers treat as that flag's required value regardless of
+  a leading `-` - only the two with a bare, unflagged target were
+  exposed. Fixed with one new deterministic-core function,
+  `core/state.py::is_safe_target_argument` (rejects any value starting
+  with `-`), called from a Pydantic `field_validator` on
+  `MissionCreateRequest.target_host` - checked once at the API boundary,
+  so every tool is covered, not just the two found with this exact shape.
+  Deliberately scoped to the one real vulnerability (leading `-`) rather
+  than a general hostname/URL format check, which would risk rejecting
+  legitimate targets (IPv6 literals, URLs with ports and paths) the
+  project has no reason to restrict.
+
+Nine regression tests added: two for `is_safe_target_argument` directly
+(`tests/test_state.py`), three for the Pydantic validator at both the
+model and full-request level (`tests/test_mission_validation.py`, new
+file), one confirming `/reports_static` now 404s regardless of `API_KEY`
+(`tests/test_api_auth.py`), and three for the WebSocket guardrail
+(`tests/test_websocket_auth.py`, new file - `fastapi.testclient.TestClient`
+with `websocket_connect()`, since `httpx.ASGITransport` used by every
+other API test doesn't support WebSocket upgrades).
+
+**Findings 4 and 5, fixed in a follow-up commit on the same branch:**
+
+- **`require_api_key`'s `==` string comparison wasn't constant-time.**
+  Swapped both comparisons to `hmac.compare_digest` - the same pattern
+  already used for the WebSocket guardrail above. No behavior change
+  (same accept/reject outcomes), purely closes the timing side-channel
+  (CWE-208); the existing auth tests already cover correctness, and a
+  timing property isn't something to unit-test.
+- **`SemanticMemory`/ChromaDB was never wired into any agent - removed
+  entirely** rather than wired in. Wiring it in would mean designing
+  which agent queries it, when, and with what text - a feature decision,
+  not a mechanical audit fix. Removed `SemanticMemory`,
+  `OllamaEmbeddingFunction`, and the `chromadb` try/except import from
+  `core/memory.py`; dropped `chromadb==0.5.15` from `requirements.txt`;
+  removed `ollama_embed_model` from `core/config.py` (nothing else read
+  it - confirmed by grep before deleting); removed `OLLAMA_EMBED_MODEL`
+  and the embedding-model `ollama pull` step from `docker-compose.yml`
+  and `docker-compose.host-ollama.yml`, and the var from `.env.example`.
+  Updated `CLAUDE.md`'s architecture diagram, component list, Docker
+  size-budget table, and environment-variable table to match - a
+  half-removed feature (code gone, docs and deploy config still
+  describing it) would have been worse than either keeping or fully
+  removing it. `README.md`'s quickstart no longer mentions downloading
+  `nomic-embed-text` on first run, since `ollama-pull` no longer does.
+  133/133 tests still pass - nothing in the test suite depended on any
+  of it.
+
+**Continued with a `fastapi-patterns`/`docker-patterns` reference pass:**
+
+- **`@app.on_event("startup")` replaced with a `lifespan` context
+  manager.** FastAPI's own deprecation warning for this had appeared in
+  every single test run this entire project, unnoticed as noise until
+  `fastapi-patterns` named it as the current standard. Same startup
+  behavior (API_KEY warning, directory creation, store init), just the
+  modern async-context-manager shape. `app.router.lifespan_context(app)`
+  (used throughout the test suite to trigger startup in tests) works
+  identically either way - no test changes needed. Confirmed in the next
+  full run: the warning is gone.
+- **Framework's published port now binds to `127.0.0.1` by default**, in
+  both `docker-compose.yml` and `docker-compose.host-ollama.yml` -
+  `${BIND_HOST:-127.0.0.1}:8000:8000`, same opt-in-to-expose posture
+  `API_KEY` already has, overridable with `BIND_HOST=0.0.0.0` for
+  deliberate LAN access. Matches `docker-patterns`' "expose only what's
+  needed" guidance and the README's own already-filed next-steps item #1
+  about this exact gap.
+- **`docker-compose.host-ollama.yml` was missing `API_KEY` from its
+  `environment:` list entirely**, found by diffing it against the main
+  compose file's list rather than assumed identical. Compose never
+  forwards a host `.env` value into a container unless it's explicitly
+  listed - an operator using this profile who set `API_KEY` in `.env`
+  would find it silently not applied, API wide open despite believing
+  otherwise. Added the missing line, matching the main file exactly.
+  (A broader fix - `env_file: .env` per service instead of manually
+  listing every var in two places - would close this whole class of bug
+  permanently; filed, not done here, since it's a bigger behavioral
+  change to deployment config this session can't validate with real
+  `docker compose up`.)
+- **The container now runs as a non-root user** (README's own
+  already-filed next-steps item #3, now implemented): `Dockerfile`
+  creates a fixed-UID-1000 `app` user; `docker-entrypoint.sh` (new file)
+  starts as root only long enough to `chown` the two bind-mounted
+  directories (`reports/`, `db/` - a bind mount replaces whatever
+  ownership the image set at build time, so this has to happen at
+  container start, not build time), then drops to `app` via `gosu`
+  before `exec`-ing the real process. `tools/nmap_tool.py::is_root()`
+  already made the SYN-scan-needs-root path fall back to a connect scan
+  automatically - confirmed, not just assumed, by re-reading that
+  function - so no code change was needed there. One real gap found by
+  checking rather than assuming the other tools would just work:
+  `commix`'s default output directory (`src/utils/settings.py:
+  OUTPUT_DIR = ".output/"`, confirmed from the real pinned-tag source,
+  same discipline as every other tool-parsing rule in this file) is
+  *relative*, resolving against the framework process's cwd (`/app`),
+  which a non-root user can't write to - unlike `sqlmap`, which already
+  hardcodes `/tmp/sqlmap-output`. Fixed by setting `--output-dir
+  /tmp/commix-output` explicitly, the same pattern. `nikto`'s write
+  behavior was spot-checked (it's already told `-output -`, i.e.
+  stdout) but not exhaustively verified against its full Perl source the
+  way commix's was.
+- **A real, previously-latent repo bug found while writing the
+  entrypoint script**: `git config --get core.autocrlf` is `true` on
+  this machine, and the repo has no `.gitattributes` - every commit this
+  entire session has carried a "LF will be replaced by CRLF" warning for
+  every text file, silently tolerated so far because Python/YAML/
+  Markdown mostly don't care. A `.sh` file run by `/bin/sh` inside the
+  container does care: a CRLF shebang (`#!/bin/sh\r`) fails to parse.
+  `docker-entrypoint.sh` would have been silently corrupted on its very
+  first checkout after this commit, breaking the Docker build in a way
+  that would only surface at `docker build` time, far from this commit.
+  Added `.gitattributes` (`*.sh text eol=lf`) and confirmed with
+  `git check-attr` that it actually takes effect before committing.
+
+**Still needs live validation before merging to `main`** - the one
+thing in this entire audit that genuinely can't be confirmed from this
+environment (no Docker access, confirmed by trying): a real
+`docker compose up --build` plus at least one full mission exercising
+every tool (nmap both scan modes, gobuster, ffuf, nikto, sqlmap, nuclei,
+dalfox, commix) as the new non-root user, checking that `reports/` and
+`db/` end up writable and that nothing silently fails the way `commix`
+almost would have.
+
+**Live validation done on a separate machine (2026-10-30).** A test run
+on Parrot OS (7.4 GiB RAM, CPU-only, `qwen3.5:4b` - the ~8 GB-RAM
+profile) brought the stack up and ran a full mission against a local
+DVWA container as the new non-root `app` user. Result: all five phases
+completed in order, 4 orchestration cycles (well under `MAX_CYCLES=10`,
+no loop), **0 errors**, a valid 61 KB PDF written to `reports/` and
+served over the authenticated download route. The deterministic core
+held exactly as specified - 15 findings (4 MEDIUM, 11 INFO), zero
+HIGH/CRITICAL, because no session cookie was supplied so nothing reached
+`exploited=True` and `cap_severity` clamped every discovery at MEDIUM.
+`nikto` specifically - the one tool flagged above as only spot-checked,
+not source-verified for non-root write behavior - **ran successfully and
+produced a finding** in this live run, so it works as non-root in
+practice against a normal target (its full Perl write surface still
+wasn't exhaustively audited, but the practical concern is answered). The
+non-root container change is validated. Not yet exercised, and still
+open: a clean-VM `git clone` -> `docker compose up --build` from nothing
+(this run reused pre-built images and a pre-pulled model), and a
+second-run-identical-badge reproducibility check.
+
+**One real packaging bug the live run surfaced, fixed here:** on the test
+machine's Python 3.13 dev venv, 10 async tests first failed with
+`greenlet library is required`. Root cause confirmed against PyPI's real
+metadata for `SQLAlchemy==2.0.35` (not taken on the report's word): the
+base package declares `greenlet` only under the marker
+`python_version < "3.13"`, while the `asyncio`/`aiosqlite` extras declare
+it unconditionally. A bare `sqlalchemy==2.0.35` therefore installs no
+greenlet on Python 3.13+, and `create_async_engine` (core/memory.py)
+fails at runtime. The 3.11 container and CI were never affected (the base
+marker is true there), which is why every `133 passed` claim this session
+was legitimate on the shipped target. Fixed by declaring
+`sqlalchemy[asyncio]==2.0.35` - which is the correct declaration anyway,
+since the asyncio engine is exactly what this project uses - rather than
+pinning bare `greenlet`, so the dependency tracks whatever SQLAlchemy's
+own asyncio extra needs. A strict no-op on 3.11 (greenlet already pulled
+either way); the fix is for 3.13+ dev machines.

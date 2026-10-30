@@ -15,13 +15,19 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.dependencies import get_store
 from api.websocket import broadcast
 from core.config import get_settings
 from core.orchestrator import run_mission
-from core.state import MissionState, Target, compute_overall_risk, is_target_in_allowed_ranges
+from core.state import (
+    MissionState,
+    Target,
+    compute_overall_risk,
+    is_safe_target_argument,
+    is_target_in_allowed_ranges,
+)
 
 router = APIRouter()
 
@@ -43,6 +49,15 @@ class MissionCreateRequest(BaseModel):
             "pages protegees par authentification. Jamais automatise ni devine par le framework."
         ),
     )
+
+    @field_validator("target_host")
+    @classmethod
+    def _reject_argument_injection(cls, value: str) -> str:
+        # core/state.py::is_safe_target_argument - checked once here so
+        # every tool downstream (nmap, dalfox, ...) is covered.
+        if not is_safe_target_argument(value):
+            raise ValueError("target_host ne doit pas commencer par '-' (confondu avec une option CLI)")
+        return value
 
 
 @router.post("")

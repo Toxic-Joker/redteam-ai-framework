@@ -14,6 +14,7 @@ from core.state import (
     compute_overall_risk,
     consolidate_denied_paths,
     enforce_progression,
+    is_safe_target_argument,
     is_target_in_allowed_ranges,
 )
 
@@ -328,3 +329,18 @@ def test_is_target_in_allowed_ranges_fails_closed_on_unresolvable_hostname(monke
 
     monkeypatch.setattr(socket, "gethostbyname", fake_gethostbyname)
     assert is_target_in_allowed_ranges("does-not-resolve.invalid", ["10.0.0.0/8"]) is False
+
+
+def test_is_safe_target_argument_accepts_ordinary_hosts():
+    assert is_safe_target_argument("gta-it.com") is True
+    assert is_safe_target_argument("192.168.1.33") is True
+    assert is_safe_target_argument("http://10.0.0.1:8080") is True
+
+
+def test_is_safe_target_argument_rejects_leading_dash():
+    # tools/nmap_tool.py and tools/dalfox_tool.py place the target as a
+    # bare argument with no preceding flag - a leading "-" is parsed by
+    # the tool itself as a CLI option, not a hostname (docs/HISTORY.md,
+    # section 27).
+    assert is_safe_target_argument("-oN/app/pwned") is False
+    assert is_safe_target_argument("--script=http-slowloris-check") is False

@@ -26,9 +26,8 @@ docker compose up --build
 ```
 
 The dashboard is served on `http://localhost:8000`. On first startup,
-`ollama-pull` automatically downloads `qwen3.5:9b` (~6.6 GB) and the
-embedding model `nomic-embed-text` (~0.27 GB) — this can take several
-minutes depending on your connection.
+`ollama-pull` automatically downloads `qwen3.5:9b` (~6.6 GB) — this can
+take several minutes depending on your connection.
 
 ## Choosing a model based on available RAM
 
@@ -150,10 +149,20 @@ order:
    `authenticity`) directly from the already-parsed HTML is enough for the
    first submission; beyond that, a token generally has a short lifetime and
    should be re-scraped before each new attempt rather than reused.
-3. **Switch the container to a non-root user by default.**
-   `NMAP_SCAN_MODE=connect` already exists for operating without elevated
-   privileges; what's missing is the corresponding `USER` directive in the
-   `Dockerfile` and confirming that every tool still works without root.
+3. **~~Switch the container to a non-root user by default.~~ Implemented,
+   not yet live-validated.** `Dockerfile` now creates a fixed-UID `app`
+   user and `docker-entrypoint.sh` drops to it via `gosu` after chowning
+   the bind-mounted `reports`/`db` directories (root only runs for that
+   one step). `tools/nmap_tool.py::is_root()` already made SYN scan fall
+   back to a connect scan automatically, so no code change was needed
+   there; `tools/commix_tool.py` needed one (its default output dir is
+   relative, resolving under `/app`, not writable by a non-root user -
+   set to `/tmp/commix-output` explicitly, matching `sqlmap`). **Still
+   needs a real `docker compose up --build` plus a full mission run**
+   before merging to `main` - this changes container runtime behavior in
+   a way no unit test can confirm (nikto's write behavior specifically
+   was spot-checked, not exhaustively verified against its full Perl
+   source). See `docs/HISTORY.md`, section 27.
 4. **Audit dependencies (`requirements.txt`) against known CVEs**
    (e.g. `pip-audit`) — never done, for lack of network access from the
    environment this project was built in.

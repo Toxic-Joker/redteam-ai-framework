@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 import httpx
 from fastapi import Depends, FastAPI
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 
 from api.dependencies import get_store, render_template, require_api_key
 from api.routes import agents as agents_routes
@@ -19,17 +20,9 @@ from core.config import get_settings
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
 
-app = FastAPI(title="RedTeam AI Framework", version="2.0.0")
 
-_api_auth = [Depends(require_api_key)]
-app.include_router(missions_routes.router, prefix="/api/missions", tags=["missions"], dependencies=_api_auth)
-app.include_router(reports_routes.router, prefix="/api/reports", tags=["reports"], dependencies=_api_auth)
-app.include_router(agents_routes.router, prefix="/api/agents", tags=["agents"], dependencies=_api_auth)
-app.include_router(websocket_router)
-
-
-@app.on_event("startup")
-async def on_startup() -> None:
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     if not settings.api_key:
         logging.getLogger(__name__).warning(
             "API_KEY is not set: the API is wide open to anyone reaching this port. "
@@ -38,10 +31,16 @@ async def on_startup() -> None:
     os.makedirs(settings.reports_dir, exist_ok=True)
     os.makedirs(settings.db_dir, exist_ok=True)
     await get_store().init()
-    try:
-        app.mount("/reports_static", StaticFiles(directory=settings.reports_dir), name="reports_static")
-    except Exception:  # noqa: BLE001 - the static mount isn't critical at startup
-        logging.getLogger(__name__).warning("Could not mount /reports_static", exc_info=True)
+    yield
+
+
+app = FastAPI(title="RedTeam AI Framework", version="2.0.0", lifespan=lifespan)
+
+_api_auth = [Depends(require_api_key)]
+app.include_router(missions_routes.router, prefix="/api/missions", tags=["missions"], dependencies=_api_auth)
+app.include_router(reports_routes.router, prefix="/api/reports", tags=["reports"], dependencies=_api_auth)
+app.include_router(agents_routes.router, prefix="/api/agents", tags=["agents"], dependencies=_api_auth)
+app.include_router(websocket_router)
 
 
 @app.get("/health")

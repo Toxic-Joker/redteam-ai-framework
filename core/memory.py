@@ -1,29 +1,14 @@
-"""Mission persistence (SQLite/SQLAlchemy) and semantic memory (ChromaDB).
-
-No torch/sentence-transformers dependency: ChromaDB's embeddings go through
-the /api/embeddings endpoint of an Ollama container already present for the
-main LLM (see CLAUDE.md, section 8).
-"""
+"""Mission persistence (SQLite/SQLAlchemy)."""
 from __future__ import annotations
 
 import json
 import os
 from typing import Any, Optional
 
-import httpx
 from sqlalchemy import Column, String, Text, delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-try:
-    import chromadb
-    from chromadb import EmbeddingFunction, Embeddings
-except ImportError:  # pragma: no cover - chromadb optional for unit tests
-    chromadb = None
-    EmbeddingFunction = object
-    Embeddings = list
-
-from core.config import get_settings
 from core.state import Finding, Lead, MissionState, Severity, Target
 
 
@@ -211,52 +196,3 @@ class MissionStore:
             await session.execute(delete(MissionRow).where(MissionRow.mission_id == mission_id))
             await session.commit()
         return True
-
-
-class OllamaEmbeddingFunction(EmbeddingFunction):
-    """Embeddings via Ollama's /api/embeddings endpoint, no torch or sentence-transformers."""
-
-    def __init__(self, base_url: str, model: str) -> None:
-        self._base_url = base_url.rstrip("/")
-        self._model = model
-
-    def __call__(self, input: list[str]) -> "Embeddings":  # noqa: A002 - name required by the Chroma interface
-        embeddings = []
-        with httpx.Client(timeout=30) as client:
-            for text in input:
-                response = client.post(
-                    f"{self._base_url}/api/embeddings",
-                    json={"model": self._model, "prompt": text},
-                )
-                response.raise_for_status()
-                embeddings.append(response.json()["embedding"])
-        return embeddings
-
-
-class SemanticMemory:
-    """ChromaDB semantic memory to retrieve similar past mission context."""
-
-    def __init__(self) -> None:
-        settings = get_settings()
-        self._enabled = chromadb is not None
-        if not self._enabled:
-            return
-        os.makedirs(settings.db_dir, exist_ok=True)
-        self._client = chromadb.PersistentClient(path=settings.db_dir)
-        embed_fn = OllamaEmbeddingFunction(settings.ollama_base_url, settings.ollama_embed_model)
-        self._collection = self._client.get_or_create_collection(
-            name="mission_memory", embedding_function=embed_fn
-        )
-
-    def add(self, mission_id: str, doc_id: str, text: str, metadata: dict[str, Any]) -> None:
-        if not self._enabled:
-            return
-        self._collection.add(ids=[f"{mission_id}:{doc_id}"], documents=[text], metadatas=[metadata])
-
-    def query(self, text: str, n_results: int = 5) -> list[dict[str, Any]]:
-        if not self._enabled:
-            return []
-        result = self._collection.query(query_texts=[text], n_results=n_results)
-        docs = result.get("documents", [[]])[0]
-        metas = result.get("metadatas", [[]])[0]
-        return [{"text": d, "metadata": m} for d, m in zip(docs, metas)]
