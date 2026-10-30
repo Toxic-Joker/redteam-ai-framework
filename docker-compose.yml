@@ -35,7 +35,10 @@ services:
       - MAX_CYCLES=${MAX_CYCLES:-10}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
-      - "8000:8000"
+      # Bound to localhost by default (same opt-in-to-expose posture as
+      # API_KEY): set BIND_HOST=0.0.0.0 to publish on every interface, e.g.
+      # to reach the dashboard from another machine on the LAN.
+      - "${BIND_HOST:-127.0.0.1}:8000:8000"
     volumes:
       - ./reports:/app/reports
       - ./db:/app/db

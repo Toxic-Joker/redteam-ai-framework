@@ -265,6 +265,23 @@ discovered in production.
       `core/state.py::is_safe_target_argument`, called from a Pydantic
       validator on `MissionCreateRequest.target_host` at the API boundary,
       not patched per-tool (`docs/HISTORY.md`, section 27).
+- [ ] Every compose file that defines the `framework` service's
+      `environment:` list must be kept in sync with every other one -
+      Compose never forwards a host `.env` value into a container unless
+      it's explicitly listed (or `env_file:` is used instead), so a var
+      present in one file and silently missing from another means an
+      operator who sets it believes it's applied when it isn't. Diff the
+      lists against each other before adding a new compose file, don't
+      assume they match (`docs/HISTORY.md`, section 27, found this way
+      for `API_KEY` in `docker-compose.host-ollama.yml`).
+- [ ] A new `.sh` file needs a `.gitattributes` entry (`*.sh text
+      eol=lf`) before its first commit, not after - `core.autocrlf=true`
+      silently converts it to CRLF on the next checkout, which breaks a
+      `/bin/sh` shebang inside a Linux container in a way that only
+      surfaces at `docker build`/`docker run` time, far from the commit
+      that caused it. Confirm the attribute actually took with `git
+      check-attr text eol -- <file>` before trusting it, not just adding
+      the line (`docs/HISTORY.md`, section 27).
 
 ---
 

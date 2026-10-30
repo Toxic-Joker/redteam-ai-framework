@@ -8,13 +8,15 @@ services:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - OLLAMA_MODEL_MAIN=${OLLAMA_MODEL_MAIN:-qwen3.5:9b}
       - REQUIRE_AUTHORIZATION=${REQUIRE_AUTHORIZATION:-true}
+      - API_KEY=${API_KEY:-}
       - NMAP_SCAN_MODE=${NMAP_SCAN_MODE:-syn}
       - MAX_CYCLES=${MAX_CYCLES:-10}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "8000:8000"
+      # Bound to localhost by default - see docker-compose.yml for why.
+      - "${BIND_HOST:-127.0.0.1}:8000:8000"
     volumes:
       - ./reports:/app/reports
       - ./db:/app/db
