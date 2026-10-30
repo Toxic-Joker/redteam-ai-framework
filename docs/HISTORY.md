@@ -1366,3 +1366,40 @@ every tool (nmap both scan modes, gobuster, ffuf, nikto, sqlmap, nuclei,
 dalfox, commix) as the new non-root user, checking that `reports/` and
 `db/` end up writable and that nothing silently fails the way `commix`
 almost would have.
+
+**Live validation done on a separate machine (2026-10-30).** A test run
+on Parrot OS (7.4 GiB RAM, CPU-only, `qwen3.5:4b` - the ~8 GB-RAM
+profile) brought the stack up and ran a full mission against a local
+DVWA container as the new non-root `app` user. Result: all five phases
+completed in order, 4 orchestration cycles (well under `MAX_CYCLES=10`,
+no loop), **0 errors**, a valid 61 KB PDF written to `reports/` and
+served over the authenticated download route. The deterministic core
+held exactly as specified - 15 findings (4 MEDIUM, 11 INFO), zero
+HIGH/CRITICAL, because no session cookie was supplied so nothing reached
+`exploited=True` and `cap_severity` clamped every discovery at MEDIUM.
+`nikto` specifically - the one tool flagged above as only spot-checked,
+not source-verified for non-root write behavior - **ran successfully and
+produced a finding** in this live run, so it works as non-root in
+practice against a normal target (its full Perl write surface still
+wasn't exhaustively audited, but the practical concern is answered). The
+non-root container change is validated. Not yet exercised, and still
+open: a clean-VM `git clone` -> `docker compose up --build` from nothing
+(this run reused pre-built images and a pre-pulled model), and a
+second-run-identical-badge reproducibility check.
+
+**One real packaging bug the live run surfaced, fixed here:** on the test
+machine's Python 3.13 dev venv, 10 async tests first failed with
+`greenlet library is required`. Root cause confirmed against PyPI's real
+metadata for `SQLAlchemy==2.0.35` (not taken on the report's word): the
+base package declares `greenlet` only under the marker
+`python_version < "3.13"`, while the `asyncio`/`aiosqlite` extras declare
+it unconditionally. A bare `sqlalchemy==2.0.35` therefore installs no
+greenlet on Python 3.13+, and `create_async_engine` (core/memory.py)
+fails at runtime. The 3.11 container and CI were never affected (the base
+marker is true there), which is why every `133 passed` claim this session
+was legitimate on the shipped target. Fixed by declaring
+`sqlalchemy[asyncio]==2.0.35` - which is the correct declaration anyway,
+since the asyncio engine is exactly what this project uses - rather than
+pinning bare `greenlet`, so the dependency tracks whatever SQLAlchemy's
+own asyncio extra needs. A strict no-op on 3.11 (greenlet already pulled
+either way); the fix is for 3.13+ dev machines.
