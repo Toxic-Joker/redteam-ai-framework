@@ -7,7 +7,6 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - OLLAMA_MODEL_MAIN=${OLLAMA_MODEL_MAIN:-qwen3.5:9b}
-      - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
       - REQUIRE_AUTHORIZATION=${REQUIRE_AUTHORIZATION:-true}
       - NMAP_SCAN_MODE=${NMAP_SCAN_MODE:-syn}
       - MAX_CYCLES=${MAX_CYCLES:-10}

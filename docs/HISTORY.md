@@ -1266,11 +1266,29 @@ file), one confirming `/reports_static` now 404s regardless of `API_KEY`
 with `websocket_connect()`, since `httpx.ASGITransport` used by every
 other API test doesn't support WebSocket upgrades).
 
-**Filed, not fixed in this pass** (lower severity, or needs a design
-decision rather than a mechanical fix - see the `ponytail-audit` report
-itself for the full writeup): `api/dependencies.py::require_api_key`'s
-`==` string comparison isn't constant-time (should fix: swap to
-`hmac.compare_digest`, same pattern just used for the WebSocket check
-above); `core/memory.py::SemanticMemory` wraps ChromaDB but is never
-instantiated anywhere in the codebase - either wire it into an agent or
-drop `chromadb` from `requirements.txt`.
+**Findings 4 and 5, fixed in a follow-up commit on the same branch:**
+
+- **`require_api_key`'s `==` string comparison wasn't constant-time.**
+  Swapped both comparisons to `hmac.compare_digest` - the same pattern
+  already used for the WebSocket guardrail above. No behavior change
+  (same accept/reject outcomes), purely closes the timing side-channel
+  (CWE-208); the existing auth tests already cover correctness, and a
+  timing property isn't something to unit-test.
+- **`SemanticMemory`/ChromaDB was never wired into any agent - removed
+  entirely** rather than wired in. Wiring it in would mean designing
+  which agent queries it, when, and with what text - a feature decision,
+  not a mechanical audit fix. Removed `SemanticMemory`,
+  `OllamaEmbeddingFunction`, and the `chromadb` try/except import from
+  `core/memory.py`; dropped `chromadb==0.5.15` from `requirements.txt`;
+  removed `ollama_embed_model` from `core/config.py` (nothing else read
+  it - confirmed by grep before deleting); removed `OLLAMA_EMBED_MODEL`
+  and the embedding-model `ollama pull` step from `docker-compose.yml`
+  and `docker-compose.host-ollama.yml`, and the var from `.env.example`.
+  Updated `CLAUDE.md`'s architecture diagram, component list, Docker
+  size-budget table, and environment-variable table to match - a
+  half-removed feature (code gone, docs and deploy config still
+  describing it) would have been worse than either keeping or fully
+  removing it. `README.md`'s quickstart no longer mentions downloading
+  `nomic-embed-text` on first run, since `ollama-pull` no longer does.
+  133/133 tests still pass - nothing in the test suite depended on any
+  of it.
