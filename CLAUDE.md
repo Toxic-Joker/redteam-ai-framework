@@ -234,6 +234,33 @@ discovered in production.
       them, and treat an unverifiable citation (a named project, paper, or
       suspiciously precise statistic) as unverified, not as evidence
       (`docs/HISTORY.md`, section 21).
+- [ ] `app.mount()` (a static files mount, or anything else not added via
+      `app.include_router()`) does not inherit a router's
+      `dependencies=_api_auth` - FastAPI's dependency injection only
+      applies to routes it owns. The same applies to a websocket route: it
+      can't take the router-level `dependencies=` list a REST router does,
+      so its own handler must check `require_api_key`'s logic manually at
+      the top, same key (`X-API-Key` header or `?api_key=` - a browser's
+      native `WebSocket` API can't set a custom header). Before adding any
+      new `app.mount()` or `@router.websocket()`, confirm it's actually
+      covered by the same auth every `/api/*` REST route gets, rather than
+      assuming the app-level auth setup reaches everything
+      (`docs/HISTORY.md`, section 27).
+- [ ] A tool invoked via `asyncio.create_subprocess_exec` is safe from
+      shell injection (no shell involved), but not from argument injection
+      (CWE-88): a user-controlled value placed as a bare argument with no
+      preceding flag (`tools/nmap_tool.py`'s trailing `target`,
+      `tools/dalfox_tool.py`'s positional `url` after `scan`) is parsed by
+      the *target binary* as a CLI flag if it starts with `-`, not as a
+      value - a root-running `nmap` given `target_host = "-oN/path"`
+      writes to that path instead of scanning. A value immediately
+      preceded by an explicit flag (`-u target`, `-h target`) is safer,
+      since most argument parsers treat the very next token as that flag's
+      required value regardless of a leading `-`, but a bare trailing or
+      positional placement is not. Checked once via
+      `core/state.py::is_safe_target_argument`, called from a Pydantic
+      validator on `MissionCreateRequest.target_host` at the API boundary,
+      not patched per-tool (`docs/HISTORY.md`, section 27).
 
 ---
 
