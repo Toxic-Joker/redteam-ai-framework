@@ -1184,3 +1184,93 @@ script fires.
 only exists in code pulled at or after `e37ed02`. A run against a
 container that wasn't rebuilt since then will show nothing, and that
 absence means "redeploy and re-run," not "the LLM is fine this time."
+
+## 27. A full security/quality audit of the framework's own code, on a separate branch (2026-10-30)
+
+First audit of the application itself (not a tool-parsing bug) since
+section 20's initial API-key/redaction pass - the `ponytail-audit` skill's
+"senior developer who just inherited it" method applied to the whole
+repo, done on `audit/security-and-optimization` rather than directly on
+`main`. Three findings were severe enough to fix immediately; the rest
+are filed.
+
+**Must fix, all three closed in this pass:**
+
+- **The PDF/HTML report had a second, unauthenticated path that bypassed
+  `API_KEY` entirely.** `main.py` mounted `app.mount("/reports_static",
+  StaticFiles(directory=settings.reports_dir), ...)` directly, not
+  through a router - the `dependencies=_api_auth` applied to the three
+  `include_router()` calls right above it never covered a `mount()`.
+  `grep -rn "reports_static"` across every `.py` and `.html` file found
+  only the mount line itself - nothing in the app ever linked to it; the
+  real, authenticated path was already `GET
+  /api/reports/{mission_id}/download`. Deleted the mount outright rather
+  than trying to gate a `StaticFiles` app with FastAPI's dependency
+  system. This exact gap is what section 20 says it closed ("the most
+  consequential gap... no authentication on the API/dashboard") - a
+  second hole in the same wall, just not noticed until a repo-wide audit
+  looked for one.
+- **`/ws/missions` broadcast every mission's `mission_id` and status to
+  anyone who could open the WebSocket, with no auth at all.** Same root
+  cause as the mount: `app.include_router(websocket_router)` in `main.py`
+  has no `dependencies=`, and a websocket route can't take the same
+  `Depends()` list a REST router does. Combined with the first finding,
+  this was a complete chain even when `API_KEY` was set: harvest
+  `mission_id`s from the open socket, then pull the full report
+  unauthenticated. Fixed by checking the key manually inside
+  `missions_ws` itself (`hmac.compare_digest` against `?api_key=` - a
+  browser's native `WebSocket` API can't set a custom header, so this
+  reuses the same query-param fallback the report download link already
+  has), closing with `WS_1008_POLICY_VIOLATION` on a mismatch.
+  `templates/dashboard.html`'s `connectWs()` now appends the stored key
+  the same way `apiFetch()` already does for REST calls - and since
+  `connectWs()` already re-read `this.apiKey` fresh on every reconnect
+  attempt (a pre-existing 3-second retry loop on `onclose`), no new retry
+  logic was needed: entering the key via the existing 401-prompt flow on
+  any REST call is enough for the next scheduled WS reconnect to pick it
+  up.
+- **`target_host` reached `nmap` and `dalfox` as a bare, unvalidated CLI
+  argument - argument injection (CWE-88).** `tools/nmap_tool.py` appends
+  `target` as the last bare element (`base + [scan_flag, *speed,
+  "--script=vuln", "-oX", "-", target]`) and `tools/dalfox_tool.py`
+  appends `url` as a bare positional right after the `scan` subcommand -
+  neither is preceded by a flag that would force the tool's own argument
+  parser to treat it as a value rather than an option. Both tools are
+  invoked via `asyncio.create_subprocess_exec` (never a shell, so no
+  classic shell injection - confirmed, not assumed, by reading every
+  `tools/*_tool.py::build_command`), but that doesn't stop the target
+  string itself from being parsed as a flag by the *target binary*. Since
+  this container runs `nmap` with `-sS` (root) by default, a
+  `target_host` like `-oN/app/pwned` would make a root-owned process
+  write to an arbitrary path instead of scanning anything. The other six
+  tools (`gobuster`, `ffuf`, `nikto`, `sqlmap`, `commix`, `nuclei`) all
+  place the target immediately after an explicit `-u`/`-h` flag, which
+  most argument parsers treat as that flag's required value regardless of
+  a leading `-` - only the two with a bare, unflagged target were
+  exposed. Fixed with one new deterministic-core function,
+  `core/state.py::is_safe_target_argument` (rejects any value starting
+  with `-`), called from a Pydantic `field_validator` on
+  `MissionCreateRequest.target_host` - checked once at the API boundary,
+  so every tool is covered, not just the two found with this exact shape.
+  Deliberately scoped to the one real vulnerability (leading `-`) rather
+  than a general hostname/URL format check, which would risk rejecting
+  legitimate targets (IPv6 literals, URLs with ports and paths) the
+  project has no reason to restrict.
+
+Nine regression tests added: two for `is_safe_target_argument` directly
+(`tests/test_state.py`), three for the Pydantic validator at both the
+model and full-request level (`tests/test_mission_validation.py`, new
+file), one confirming `/reports_static` now 404s regardless of `API_KEY`
+(`tests/test_api_auth.py`), and three for the WebSocket guardrail
+(`tests/test_websocket_auth.py`, new file - `fastapi.testclient.TestClient`
+with `websocket_connect()`, since `httpx.ASGITransport` used by every
+other API test doesn't support WebSocket upgrades).
+
+**Filed, not fixed in this pass** (lower severity, or needs a design
+decision rather than a mechanical fix - see the `ponytail-audit` report
+itself for the full writeup): `api/dependencies.py::require_api_key`'s
+`==` string comparison isn't constant-time (should fix: swap to
+`hmac.compare_digest`, same pattern just used for the WebSocket check
+above); `core/memory.py::SemanticMemory` wraps ChromaDB but is never
+instantiated anywhere in the codebase - either wire it into an agent or
+drop `chromadb` from `requirements.txt`.

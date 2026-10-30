@@ -64,3 +64,18 @@ async def test_health_and_dashboard_never_require_api_key(monkeypatch):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             assert (await client.get("/health")).status_code == 200
             assert (await client.get("/")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_reports_static_mount_no_longer_exists(monkeypatch):
+    # Regression test: this unauthenticated static mount used to serve
+    # every report in reports_dir with no auth at all, bypassing API_KEY
+    # entirely (docs/HISTORY.md, section 27). The only path to a report
+    # is now GET /api/reports/{mission_id}/download, already behind
+    # require_api_key.
+    monkeypatch.setattr(get_settings(), "api_key", "s3cr3t")
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.get("/reports_static/anything.html")
+            assert r.status_code == 404
