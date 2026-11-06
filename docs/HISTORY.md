@@ -1,7 +1,7 @@
 # Project history (v1)
 
-Full retrospective of the framework's first version (Cybersecurity, Networks
-& Cloud Master's thesis, EFREI, defended). This document explains the "why"
+Full retrospective of the framework's first version (an academic research
+project, defended). This document explains the "why"
 behind several technical choices that may look arbitrary in `CLAUDE.md` if
 read without this context. Do not modify a `CLAUDE.md` rule without having
 read the corresponding incident here.

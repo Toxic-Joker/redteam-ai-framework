@@ -20,7 +20,7 @@ nikto, sqlmap, ffuf, nuclei, dalfox, commix) actually produced, never in the mod
 
 See [`PROJECT.md`](PROJECT.md) for the mission, audiences, and MVP scope; [`CLAUDE.md`](CLAUDE.md)
 for the technical blueprint; [`docs/HISTORY.md`](docs/HISTORY.md) for the full retrospective of
-every incident, fix, and audit (EFREI Master's thesis origin).
+every incident, fix, and audit.
 
 ## Start in 3 steps
 

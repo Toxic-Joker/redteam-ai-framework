@@ -91,6 +91,5 @@ machine.
 - `CLAUDE.md`: technical blueprint (architecture, Docker/network pitfalls to
   avoid, model choice, directory layout, build order). Read automatically by
   Claude Code at every work session on this repo.
-- `docs/HISTORY.md`: full retrospective of the project's first version
-  (EFREI Master's thesis, defended): what was tried, what broke, what was
-  fixed.
+- `docs/HISTORY.md`: full retrospective of the project's first version:
+  what was tried, what broke, what was fixed.
